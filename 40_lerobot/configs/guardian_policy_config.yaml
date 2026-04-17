@@ -1,0 +1,28 @@
+# LeRobot policy config for GUARDIAN dual-arm manipulation
+# Owner: Dipam
+# TODO: fill in after LeRobot setup at hackathon
+
+policy:
+  name: act  # or diffusion — decide at hackathon based on available training time
+  # TODO: add policy hyperparameters
+  # chunk_size: 100
+  # n_obs_steps: 1
+  # dim_model: 512
+
+dataset:
+  # TODO: define dataset path after recording demos
+  repo_id: null
+  # repo_id: guardian_team/guardian_dual_arm_demos
+
+training:
+  # TODO: define training params
+  num_epochs: null
+  # num_epochs: 50
+  # batch_size: 8
+  # lr: 1e-4
+  # grad_clip_norm: 10.0
+
+environment:
+  # TODO: define observation and action spaces
+  obs_type: null  # pixels, state, or both
+  action_type: null  # joint positions or end-effector poses

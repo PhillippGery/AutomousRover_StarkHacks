@@ -1,0 +1,35 @@
+<?xml version="1.0"?>
+<!-- GUARDIAN URDF/xacro stub -->
+<!-- Owner: Phillipp -->
+<!-- TODO: fill in robot geometry after physical chassis is built -->
+<!-- Measure actual dimensions and update robot_params.yaml to match -->
+
+<robot name="guardian" xmlns:xacro="http://www.ros.org/wiki/xacro">
+
+  <!-- TODO: define material properties -->
+
+  <!-- base_link — center of chassis at ground level -->
+  <link name="base_link">
+    <!-- TODO: add visual and collision geometry -->
+    <inertial>
+      <!-- TODO: add inertia from CAD model -->
+      <mass value="5.0"/>
+      <origin xyz="0 0 0.1" rpy="0 0 0"/>
+      <inertia ixx="0.1" ixy="0" ixz="0"
+               iyy="0.1" iyz="0"
+               izz="0.1"/>
+    </inertial>
+  </link>
+
+  <!-- TODO: add wheel links (FL, FR, BL, BR) -->
+  <!-- TODO: add wheel joints with continuous type -->
+
+  <!-- TODO: add Intel RealSense T265 link and joint -->
+  <!-- T265 frame_id must match ekf_params.yaml odom1 source -->
+
+  <!-- TODO: add Scanse Sweep LIDAR link and joint -->
+  <!-- LIDAR frame_id must match LaserScan header in lidar_republisher_node -->
+
+  <!-- TODO: add left and right arm base links and joints -->
+
+</robot>

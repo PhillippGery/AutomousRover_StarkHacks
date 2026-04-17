@@ -1,0 +1,36 @@
+# ROS2 build artifacts
+build/
+install/
+log/
+
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+.env
+venv/
+.venv/
+*.egg-info/
+dist/
+
+# Arduino
+*.hex
+*.elf
+*.bin
+
+# CAD — use Git LFS for large files
+*.stl
+*.step
+*.stp
+*.f3d
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editors
+.vscode/
+.idea/
+*.swp
+*.bak
+*~

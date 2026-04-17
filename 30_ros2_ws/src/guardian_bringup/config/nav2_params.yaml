@@ -1,0 +1,21 @@
+# Nav2 parameters for GUARDIAN
+# TODO: Fill in Nav2 params at hackathon — use nav2_bringup defaults as starting point
+# Reference: ros2 param dump after launching with default nav2_bringup params
+
+# Minimal placeholder to allow colcon build to succeed.
+# Replace with full nav2 parameter file before running navigation.
+
+bt_navigator:
+  ros__parameters:
+    use_sim_time: false
+    # TODO: configure BT navigator
+
+controller_server:
+  ros__parameters:
+    use_sim_time: false
+    # TODO: configure DWB or MPPI controller for mecanum drive
+
+planner_server:
+  ros__parameters:
+    use_sim_time: false
+    # TODO: configure NavFn or Smac planner
