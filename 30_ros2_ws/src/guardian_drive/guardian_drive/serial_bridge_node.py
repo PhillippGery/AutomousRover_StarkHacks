@@ -1,7 +1,7 @@
 # MIT License
 # GUARDIAN — StarkHacks 2026
 # Node: serial_bridge_node
-# Purpose: sends RPM targets to two ESP32 boards over USB serial, reads encoder feedback, publishes /odom
+# Purpose: sends RPM targets to two ESP32 boards over USB serial, optionally reads encoder feedback and publishes /odom
 # Layout: LEFT ESP32 = FL+BL (M1=FL, M2=BL), RIGHT ESP32 = FR+BR (M1=FR, M2=BR)
 
 import math
@@ -28,8 +28,10 @@ class SerialBridgeNode(Node):
         self.declare_parameter('cpr',                175.0)
         self.declare_parameter('max_ticks_per_sec',  3000.0)
         self.declare_parameter('sim_mode',           False)
+        self.declare_parameter('publish_odom',       True)
 
         self.sim_mode  = self.get_parameter('sim_mode').value
+        self.publish_odom = self.get_parameter('publish_odom').value
         port_left      = self.get_parameter('serial_port_left').value
         port_right     = self.get_parameter('serial_port_right').value
         baud           = self.get_parameter('baud_rate').value
@@ -46,8 +48,11 @@ class SerialBridgeNode(Node):
 
         self.sub = self.create_subscription(
             Float32MultiArray, '/wheel_rpm', self.rpm_callback, 10)
-        self.odom_pub       = self.create_publisher(Odometry, '/odom', 10)
-        self.tf_broadcaster = TransformBroadcaster(self)
+        self.odom_pub = None
+        self.tf_broadcaster = None
+        if self.publish_odom:
+            self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+            self.tf_broadcaster = TransformBroadcaster(self)
 
         self.x = self.y = self.yaw = 0.0
         self.last_time = self.get_clock().now()
@@ -64,10 +69,12 @@ class SerialBridgeNode(Node):
         self._vel_fl = self._vel_fr = 0.0
         self._vel_bl = self._vel_br = 0.0
 
-        self.create_timer(0.02, self.read_encoders)  # 50 Hz
+        if self.publish_odom:
+            self.create_timer(0.02, self.read_encoders)  # 50 Hz
 
         self.get_logger().info(
-            f'serial_bridge_node started (LEFT={port_left}, RIGHT={port_right})')
+            f'serial_bridge_node started (LEFT={port_left}, RIGHT={port_right}, '
+            f'publish_odom={self.publish_odom})')
 
     def _open_port(self, port, baud, timeout):
         try:
@@ -100,6 +107,8 @@ class SerialBridgeNode(Node):
 
     # ── Encoder reading ──────────────────────────────────────────────────────────
     def read_encoders(self):
+        if not self.publish_odom:
+            return
         if self.sim_mode or (self.ser_left is None and self.ser_right is None):
             self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
             return
@@ -186,6 +195,8 @@ class SerialBridgeNode(Node):
         self._publish_odom(vx, vy, omega, now)
 
     def _publish_odom(self, vx, vy, omega, stamp):
+        if not self.publish_odom:
+            return
         qz = math.sin(self.yaw / 2.0)
         qw = math.cos(self.yaw / 2.0)
 
