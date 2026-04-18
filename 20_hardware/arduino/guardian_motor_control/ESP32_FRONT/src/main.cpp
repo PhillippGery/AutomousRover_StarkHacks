@@ -114,14 +114,16 @@ void setup() {
 void loop() {
 
   // --- 1. RECEIVE COMMANDS: "M1:xxx M2:xxx\n" (ticks/sec) ---
+  // --- 1. RECEIVE COMMANDS ---
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n') {
-      int v1, v2;
-      if (sscanf(input_string.c_str(), "M1:%d M2:%d", &v1, &v2) == 2) {
-        target_FL = (float)v1;
-        
-        target_FR = (float)v2;
+      float v1, v2; // <-- Change to floats!
+      // Look for floats (%f) instead of ints (%d)
+      if (sscanf(input_string.c_str(), "M1:%f M2:%f", &v1, &v2) == 2) {
+        // Convert the incoming RPM back into Ticks/Sec
+        target_FL = (v1 / 60.0f) * 700.0f;
+        target_FR = (v2 / 60.0f) * 700.0f;
         last_msg_time = millis();
       }
       input_string = "";
