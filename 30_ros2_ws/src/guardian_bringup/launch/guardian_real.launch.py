@@ -58,24 +58,46 @@ def generate_launch_description():
             output='screen',
         ),
 
-        # ── 3. Intel RealSense T265 — publish rover odometry directly to /odom ─
+        # ── 3. Intel RealSense T265 ─────────────────────────────────────────────
         Node(
             package='realsense2_camera',
             executable='realsense2_camera_node',
             name='realsense2_camera',
             parameters=[{
+                'camera_name': 'camera',
                 'use_sim_time': False,
                 'enable_pose': True,
                 'enable_fisheye1': False,
                 'enable_fisheye2': False,
+                'wait_for_device_timeout': 10.0,
                 'publish_tf': True,
+                'publish_odom_tf': True,
                 'tf_publish_rate': 30.0,
-                'base_frame_id': 'base_link',
-                'odom_frame_id': 'odom',
+                'base_frame_id': 'link',
+                'odom_frame_id': 'odom_frame',
             }],
             remappings=[
                 ('/camera/odom/sample', '/odom'),
             ],
+            output='screen',
+        ),
+
+        # The current realsense-ros build publishes odom TF as odom_frame ->
+        # camera_pose_frame, so bridge that into Nav2's expected odom -> base_link.
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='odom_to_t265_odom',
+            arguments=['0', '0', '0', '0', '0', '0', 'odom', 'odom_frame'],
+            parameters=[{'use_sim_time': False}],
+            output='screen',
+        ),
+        Node(
+            package='tf2_ros',
+            executable='static_transform_publisher',
+            name='t265_pose_to_base_link',
+            arguments=['0', '0', '0', '0', '0', '0', 'camera_pose_frame', 'base_link'],
+            parameters=[{'use_sim_time': False}],
             output='screen',
         ),
 
@@ -128,7 +150,8 @@ def generate_launch_description():
         ]),
 
         # ── 6. Nav2 core nodes ──────────────────────────────────────────────────
-        TimerAction(period=10.0, actions=[
+        # Delay Nav2 until the T265 and TF bridge chain are already present.
+        TimerAction(period=15.0, actions=[
             Node(package='nav2_controller', executable='controller_server',
                  name='controller_server', output='screen',
                  parameters=[nav2_params, {'use_sim_time': False}],
@@ -165,7 +188,7 @@ def generate_launch_description():
         ]),
 
         # ── 7. RViz2 ────────────────────────────────────────────────────────────
-        TimerAction(period=10.0, actions=[
+        TimerAction(period=15.0, actions=[
             Node(
                 package='rviz2',
                 executable='rviz2',
