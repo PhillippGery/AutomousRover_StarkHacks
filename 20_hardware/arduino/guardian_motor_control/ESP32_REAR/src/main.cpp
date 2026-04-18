@@ -124,14 +124,14 @@ void setup() {
 // =============================================================================
 void loop() {
 
-  // --- 1. RECEIVE COMMANDS: "M1:xxx M2:xxx\n" (ticks/sec) ---
+  // --- 1. RECEIVE COMMANDS: "M1:xxx M2:xxx\n" (RPM) ---
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n') {
-      int v1, v2;
-      if (sscanf(input_string.c_str(), "M1:%d M2:%d", &v1, &v2) == 2) {
-        target_M1 = (float)v1;
-        target_M2 = (float)v2;
+      float v1, v2;
+      if (sscanf(input_string.c_str(), "M1:%f M2:%f", &v1, &v2) == 2) {
+        target_M1 = (v1 / 60.0f) * 175.0f;
+        target_M2 = (v2 / 60.0f) * 175.0f;
         last_msg_time = millis();
       }
       input_string = "";
@@ -140,8 +140,8 @@ void loop() {
     }
   }
 
-  // --- 1b. SAFETY STOP — no message for 500ms ---
-  if (millis() - last_msg_time > 500) {
+  // --- 1b. SAFETY STOP — no message for 2000ms ---
+  if (millis() - last_msg_time > 2000) {
     target_M1 = 0.0f;
     target_M2 = 0.0f;
   }
@@ -158,8 +158,25 @@ void loop() {
     float vel_M1 = computeVelocity(cur_M1, prev_ticks_M1, vel_history_M1, vel_index_M1);
     float vel_M2 = computeVelocity(cur_M2, prev_ticks_M2, vel_history_M2, vel_index_M2);
 
-    float out_M1 = (target_M1 == 0.0f) ? 0.0f : pidM1.compute(target_M1, vel_M1);
-    float out_M2 = (target_M2 == 0.0f) ? 0.0f : pidM2.compute(target_M2, vel_M2);
+    // --- Motor 1 (BL) Deadband & Minimum Power ---
+    float out_M1 = 0.0f;
+    if (target_M1 == 0.0f) {
+      out_M1 = 0.0f;
+    } else {
+      out_M1 = pidM1.compute(target_M1, vel_M1);
+      if (target_M1 > 0.0f) out_M1 += 25.0f;
+      if (target_M1 < 0.0f) out_M1 -= 25.0f;
+    }
+
+    // --- Motor 2 (BR) Deadband & Minimum Power ---
+    float out_M2 = 0.0f;
+    if (target_M2 == 0.0f) {
+      out_M2 = 0.0f;
+    } else {
+      out_M2 = pidM2.compute(target_M2, vel_M2);
+      if (target_M2 > 0.0f) out_M2 += 25.0f;
+      if (target_M2 < 0.0f) out_M2 -= 25.0f;
+    }
 
     out_M1 = constrain(out_M1, -255.0f, 255.0f);
     out_M2 = constrain(out_M2, -255.0f, 255.0f);

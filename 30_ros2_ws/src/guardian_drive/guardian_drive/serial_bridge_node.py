@@ -82,15 +82,8 @@ class SerialBridgeNode(Node):
             return
         fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
 
-        max_rpm = 251.0
-        scale   = self.max_ticks_per_sec / max_rpm
-        fl = int(round(fl_rpm * scale))
-        fr = int(round(fr_rpm * scale))
-        bl = int(round(bl_rpm * scale))
-        br = int(round(br_rpm * scale))
-
-        self._write_safe(self.ser_front, f'M1:{fl} M2:{fr}\n', 'FRONT')
-        self._write_safe(self.ser_rear,  f'M1:{bl} M2:{br}\n', 'REAR')
+        self._write_safe(self.ser_front, f'M1:{fl_rpm:.2f} M2:{fr_rpm:.2f}\n', 'FRONT')
+        self._write_safe(self.ser_rear,  f'M1:{bl_rpm:.2f} M2:{br_rpm:.2f}\n', 'REAR')
 
     def _write_safe(self, ser, line, label):
         if ser is None:
