@@ -4,7 +4,7 @@ serial_bridge_node:
     serial_port_rear: /dev/ttyACM1
     baud_rate: 115200
     serial_timeout: 1.0
-    wheel_radius: 0.048
+    wheel_radius: 0.0748
     wheel_base_length: 0.25
     wheel_base_width: 0.20
     cpr: 4.0
@@ -12,7 +12,7 @@ serial_bridge_node:
 
 mecanum_kinematics_node:
   ros__parameters:
-    wheel_radius: 0.048
+    wheel_radius: 0.0748
     wheel_base_length: 0.25
     wheel_base_width: 0.20
     max_rpm: 251.0
