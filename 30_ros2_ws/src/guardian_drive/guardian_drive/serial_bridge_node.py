@@ -17,92 +17,109 @@ class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
 
-        self.declare_parameter('serial_port_front', '/dev/ttyUSB0')
-        self.declare_parameter('serial_port_rear',  '/dev/ttyUSB1')
+        self.declare_parameter('serial_port_front', '/dev/ttyACM0')
+        self.declare_parameter('serial_port_rear',  '/dev/ttyACM1')
         self.declare_parameter('baud_rate',          115200)
         self.declare_parameter('serial_timeout',     1.0)
-        self.declare_parameter('wheel_radius',       0.0748)
+        self.declare_parameter('wheel_radius',       0.048)
         self.declare_parameter('wheel_base_length',  0.25)
         self.declare_parameter('wheel_base_width',   0.20)
+        self.declare_parameter('cpr',                4.0)   # encoder counts per wheel rev
+        self.declare_parameter('sim_mode',           False)
 
-        port_front = self.get_parameter('serial_port_front').value
-        port_rear  = self.get_parameter('serial_port_rear').value
-        baud       = self.get_parameter('baud_rate').value
-        timeout    = self.get_parameter('serial_timeout').value
+        self.sim_mode  = self.get_parameter('sim_mode').value
+        port_front     = self.get_parameter('serial_port_front').value
+        port_rear      = self.get_parameter('serial_port_rear').value
+        baud           = self.get_parameter('baud_rate').value
+        timeout        = self.get_parameter('serial_timeout').value
+        self.cpr       = self.get_parameter('cpr').value
 
-        self.ser_front = self._open_port(port_front, baud, timeout)
-        self.ser_rear  = self._open_port(port_rear,  baud, timeout)
+        if self.sim_mode:
+            self.ser_front = self.ser_rear = None
+            self.get_logger().warn('sim_mode=true — serial disabled, publishing zero odometry')
+        else:
+            self.ser_front = self._open_port(port_front, baud, timeout)
+            self.ser_rear  = self._open_port(port_rear,  baud, timeout)
 
         self.sub = self.create_subscription(
             Float32MultiArray, '/wheel_rpm', self.rpm_callback, 10)
-        self.odom_pub    = self.create_publisher(Odometry, '/odom', 10)
+        self.odom_pub       = self.create_publisher(Odometry, '/odom', 10)
         self.tf_broadcaster = TransformBroadcaster(self)
 
         self.x = self.y = self.yaw = 0.0
         self.last_time = self.get_clock().now()
 
-        # Last known encoder ticks from each board (for odometry merging)
-        self._fl = 0; self._fr = 0
-        self._bl = 0; self._br = 0
+        # Cumulative tick tracking for velocity computation
+        self._prev_fl = self._prev_fr = 0
+        self._prev_bl = self._prev_br = 0
+        self._prev_tick_time = self.get_clock().now()
+
+        # Latest velocity estimates (ticks/sec)
+        self._vel_fl = self._vel_fr = 0.0
+        self._vel_bl = self._vel_br = 0.0
 
         self.create_timer(0.02, self.read_encoders)  # 50 Hz
 
-        self.get_logger().info('serial_bridge_node started (FRONT=%s, REAR=%s)', port_front, port_rear)
+        self.get_logger().info(
+            f'serial_bridge_node started (FRONT={port_front}, REAR={port_rear})')
 
-    # ------------------------------------------------------------------
-    def _open_port(self, port: str, baud: int, timeout: float):
+    def _open_port(self, port, baud, timeout):
         try:
             s = serial.Serial(port, baud, timeout=timeout)
-            self.get_logger().info(f'Opened serial port {port} at {baud} baud')
+            self.get_logger().info(f'Opened {port} at {baud} baud')
             return s
         except serial.SerialException as e:
-            self.get_logger().warn(f'Could not open serial port {port}: {e}')
+            self.get_logger().warn(f'Could not open {port}: {e}')
             return None
 
-    # ------------------------------------------------------------------
+    # ── Commands ────────────────────────────────────────────────────────────────
     def rpm_callback(self, msg: Float32MultiArray):
         if len(msg.data) < 4:
-            self.get_logger().warn('wheel_rpm message has fewer than 4 values')
+            self.get_logger().warn('wheel_rpm: need 4 values')
             return
+        fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
 
-        fl, fr, bl, br = (int(round(v)) for v in msg.data[:4])
+        # boards accept ticks/sec — convert from RPM
+        fl = int(round(fl_rpm * self.cpr / 60.0))
+        fr = int(round(fr_rpm * self.cpr / 60.0))
+        bl = int(round(bl_rpm * self.cpr / 60.0))
+        br = int(round(br_rpm * self.cpr / 60.0))
 
         self._write_safe(self.ser_front, f'M1:{fl} M2:{fr}\n', 'FRONT')
         self._write_safe(self.ser_rear,  f'M1:{bl} M2:{br}\n', 'REAR')
 
-    def _write_safe(self, ser, line: str, label: str):
+    def _write_safe(self, ser, line, label):
         if ser is None:
             return
         try:
             ser.write(line.encode())
         except serial.SerialException as e:
-            self.get_logger().error(f'Serial write error ({label}): {e}')
+            self.get_logger().error(f'Serial write ({label}): {e}')
 
-    # ------------------------------------------------------------------
+    # ── Encoder reading ──────────────────────────────────────────────────────────
     def read_encoders(self):
-        updated = False
+        if self.sim_mode:
+            self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
+            return
 
+        updated = False
         updated |= self._read_board(self.ser_front, 'FRONT', is_front=True)
         updated |= self._read_board(self.ser_rear,  'REAR',  is_front=False)
-
         if updated:
             self._compute_odom()
 
-    def _read_board(self, ser, label: str, is_front: bool) -> bool:
-        if ser is None:
+    def _read_board(self, ser, label, is_front):
+        if ser is None or not ser.in_waiting:
             return False
         try:
-            if not ser.in_waiting:
-                return False
             raw = ser.readline()
         except serial.SerialException as e:
-            self.get_logger().error(f'Serial read error ({label}): {e}')
+            self.get_logger().error(f'Serial read ({label}): {e}')
             return False
 
         line = raw.decode(errors='replace').strip()
 
         if not line.startswith('ENC:'):
-            # Log heartbeat lines at debug level, ignore everything else
             if 'alive' in line:
                 self.get_logger().debug(f'Heartbeat ({label}): {line}')
             return False
@@ -115,29 +132,40 @@ class SerialBridgeNode(Node):
             m1 = parts['M1']
             m2 = parts['M2']
         except Exception as e:
-            self.get_logger().warn(f'Failed to parse encoder line from {label} "{line}": {e}')
+            self.get_logger().warn(f'Parse error ({label}) "{line}": {e}')
+            return False
+
+        now = self.get_clock().now()
+        dt  = (now - self._prev_tick_time).nanoseconds / 1e9
+        if dt <= 0:
             return False
 
         if is_front:
-            self._fl = m1
-            self._fr = m2
-            self.get_logger().debug(f'ENC FRONT FL={m1} FR={m2}')
+            self._vel_fl = (m1 - self._prev_fl) / dt
+            self._vel_fr = (m2 - self._prev_fr) / dt
+            self._prev_fl = m1
+            self._prev_fr = m2
         else:
-            self._bl = m1
-            self._br = m2
-            self.get_logger().debug(f'ENC REAR  BL={m1} BR={m2}')
+            self._vel_bl = (m1 - self._prev_bl) / dt
+            self._vel_br = (m2 - self._prev_br) / dt
+            self._prev_bl = m1
+            self._prev_br = m2
 
+        self._prev_tick_time = now
         return True
 
-    # ------------------------------------------------------------------
+    # ── Odometry ─────────────────────────────────────────────────────────────────
     def _compute_odom(self):
         r = self.get_parameter('wheel_radius').value
         L = self.get_parameter('wheel_base_length').value / 2.0
         W = self.get_parameter('wheel_base_width').value / 2.0
 
-        k = 2.0 * math.pi / 60.0
-        fl = self._fl * k; fr = self._fr * k
-        bl = self._bl * k; br = self._br * k
+        # ticks/sec → rad/s
+        k = 2.0 * math.pi / self.cpr
+        fl = self._vel_fl * k
+        fr = self._vel_fr * k
+        bl = self._vel_bl * k
+        br = self._vel_br * k
 
         vx    = r / 4.0 * (fl + fr + bl + br)
         vy    = r / 4.0 * (-fl + fr + bl - br)
