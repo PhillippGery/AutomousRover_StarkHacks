@@ -4,50 +4,82 @@
 # Owner: Phillipp
 # Purpose: sends RPM targets to Arduino over USB serial, reads encoder feedback, publishes /odom
 
+import serial
+
 import rclpy
 from rclpy.node import Node
-# TODO: import message types needed
-# from std_msgs.msg import Float32MultiArray
-# from nav_msgs.msg import Odometry
-# import serial
+from std_msgs.msg import Float32MultiArray
+from nav_msgs.msg import Odometry
 
 
 class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
+
+        self.declare_parameter('serial_port', '/dev/ttyUSB0')
+        self.declare_parameter('baud_rate', 115200)
+        self.declare_parameter('serial_timeout', 1.0)
+
+        port = self.get_parameter('serial_port').value
+        baud = self.get_parameter('baud_rate').value
+        timeout = self.get_parameter('serial_timeout').value
+
+        try:
+            self.ser = serial.Serial(port, baud, timeout=timeout)
+            self.get_logger().info(f'Opened serial port {port} at {baud} baud')
+        except serial.SerialException as e:
+            self.get_logger().warn(f'Could not open serial port {port}: {e}')
+            self.ser = None
+
+        self.sub = self.create_subscription(
+            Float32MultiArray, '/wheel_rpm', self.rpm_callback, 10)
+        self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+
         self.get_logger().info('serial_bridge_node started')
 
-        # TODO: declare parameters
-        # self.declare_parameter('serial_port', '/dev/ttyUSB0')
-        # self.declare_parameter('serial_baud', 115200)
+    def rpm_callback(self, msg):
+        if self.ser is None:
+            self.get_logger().warn('Serial port not available, skipping RPM send')
+            return
 
-        # TODO: open serial port
-        # port = self.get_parameter('serial_port').value
-        # baud = self.get_parameter('serial_baud').value
-        # self.ser = serial.Serial(port, baud, timeout=0.1)
+        if len(msg.data) < 4:
+            self.get_logger().warn('wheel_rpm message has fewer than 4 values')
+            return
 
-        # TODO: create subscribers
-        # self.sub = self.create_subscription(
-        #     Float32MultiArray, '/wheel_rpms', self.rpm_callback, 10)
+        fl, fr, bl, br = (int(round(v)) for v in msg.data[:4])
+        line = f'FL:{fl} FR:{fr} BL:{bl} BR:{br}\n'
 
-        # TODO: create publishers
-        # self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
+        try:
+            self.ser.write(line.encode())
+            raw = self.ser.readline()
+            if raw:
+                decoded = raw.decode(errors='replace').strip()
+                if decoded.startswith('ENC:'):
+                    self._handle_encoder_line(decoded)
+        except serial.SerialException as e:
+            self.get_logger().error(f'Serial error: {e}')
+        except Exception as e:
+            self.get_logger().error(f'Unexpected serial error: {e}')
 
-        # TODO: create timer for reading encoder feedback
-        # self.timer = self.create_timer(0.02, self.read_encoders)  # 50 Hz
+        odom = Odometry()
+        odom.header.stamp = self.get_clock().now().to_msg()
+        odom.header.frame_id = 'odom'
+        self.odom_pub.publish(odom)
 
-    # TODO: implement callbacks
-    # def rpm_callback(self, msg):
-    #     fl, fr, bl, br = msg.data
-    #     line = f'FL:{int(fl)} FR:{int(fr)} BL:{int(bl)} BR:{int(br)}\n'
-    #     self.ser.write(line.encode())
-
-    # def read_encoders(self):
-    #     if self.ser.in_waiting:
-    #         line = self.ser.readline().decode().strip()
-    #         # Parse: "ENC:FL:148 FR:151 BL:-149 BR:-152"
-    #         # TODO: parse and integrate into odometry
-    #         # TODO: publish nav_msgs/Odometry on /odom
+    def _handle_encoder_line(self, line):
+        # Expected format: "ENC:FL:148 FR:151 BL:-149 BR:-152"
+        try:
+            parts = line[len('ENC:'):].split()
+            values = {}
+            for part in parts:
+                label, val = part.split(':')
+                values[label] = int(val)
+            self.get_logger().info(
+                f"Encoders FL={values.get('FL')} FR={values.get('FR')} "
+                f"BL={values.get('BL')} BR={values.get('BR')}"
+            )
+        except Exception as e:
+            self.get_logger().warn(f'Failed to parse encoder line "{line}": {e}')
 
 
 def main(args=None):
