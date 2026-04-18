@@ -94,7 +94,7 @@ class SerialBridgeNode(Node):
             return
         try:
             ser.write(line.encode())
-        except serial.SerialException as e:
+        except (serial.SerialException, OSError) as e:
             self.get_logger().error(f'Serial write ({label}): {e}')
 
     # ── Encoder reading ──────────────────────────────────────────────────────────
@@ -110,11 +110,11 @@ class SerialBridgeNode(Node):
             self._compute_odom()
 
     def _read_board(self, ser, label, is_front):
-        if ser is None or not ser.in_waiting:
-            return False
         try:
+            if ser is None or not ser.in_waiting:
+                return False
             raw = ser.readline()
-        except serial.SerialException as e:
+        except (serial.SerialException, OSError) as e:
             self.get_logger().error(f'Serial read ({label}): {e}')
             return False
 
