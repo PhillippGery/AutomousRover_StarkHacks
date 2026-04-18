@@ -121,7 +121,7 @@ def generate_launch_description():
             Node(package='nav2_lifecycle_manager', executable='lifecycle_manager',
                  name='lifecycle_manager_navigation', output='screen',
                  parameters=[{'use_sim_time': True,
-                               'autostart': False,
+                               'autostart': True,
                                'bond_timeout': 0.0,
                                'node_names': [
                                    'controller_server', 'smoother_server',
