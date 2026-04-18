@@ -122,8 +122,8 @@ void loop() {
       // Look for floats (%f) instead of ints (%d)
       if (sscanf(input_string.c_str(), "M1:%f M2:%f", &v1, &v2) == 2) {
         // Convert the incoming RPM back into Ticks/Sec
-        target_FL = (v1 / 60.0f) * 700.0f;
-        target_FR = (v2 / 60.0f) * 700.0f;
+        target_FL = (v1 / 60.0f) * 175.0f;
+        target_FR = (v2 / 60.0f) * 175.0f;
         last_msg_time = millis();
       }
       input_string = "";
