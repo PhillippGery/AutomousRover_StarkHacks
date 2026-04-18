@@ -2,6 +2,7 @@
 # GUARDIAN — StarkHacks 2026
 # Node: serial_bridge_node
 # Purpose: sends RPM targets to two ESP32 boards over USB serial, reads encoder feedback, publishes /odom
+# Layout: LEFT ESP32 = FL+BL (M1=FL, M2=BL), RIGHT ESP32 = FR+BR (M1=FR, M2=BR)
 
 import math
 import serial
@@ -17,11 +18,11 @@ class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
 
-        self.declare_parameter('serial_port_front', '/dev/ttyACM0')
-        self.declare_parameter('serial_port_rear',  '/dev/ttyACM1')
+        self.declare_parameter('serial_port_left',  '/dev/ttyACM0')
+        self.declare_parameter('serial_port_right', '/dev/ttyACM1')
         self.declare_parameter('baud_rate',          115200)
         self.declare_parameter('serial_timeout',     1.0)
-        self.declare_parameter('wheel_radius',       0.048)
+        self.declare_parameter('wheel_radius',       0.0748)
         self.declare_parameter('wheel_base_length',  0.25)
         self.declare_parameter('wheel_base_width',   0.20)
         self.declare_parameter('cpr',                175.0)
@@ -29,19 +30,19 @@ class SerialBridgeNode(Node):
         self.declare_parameter('sim_mode',           False)
 
         self.sim_mode  = self.get_parameter('sim_mode').value
-        port_front     = self.get_parameter('serial_port_front').value
-        port_rear      = self.get_parameter('serial_port_rear').value
+        port_left      = self.get_parameter('serial_port_left').value
+        port_right     = self.get_parameter('serial_port_right').value
         baud           = self.get_parameter('baud_rate').value
         timeout        = self.get_parameter('serial_timeout').value
-        self.cpr              = self.get_parameter('cpr').value
+        self.cpr               = self.get_parameter('cpr').value
         self.max_ticks_per_sec = self.get_parameter('max_ticks_per_sec').value
 
         if self.sim_mode:
-            self.ser_front = self.ser_rear = None
+            self.ser_left = self.ser_right = None
             self.get_logger().warn('sim_mode=true — serial disabled, publishing zero odometry')
         else:
-            self.ser_front = self._open_port(port_front, baud, timeout)
-            self.ser_rear  = self._open_port(port_rear,  baud, timeout)
+            self.ser_left  = self._open_port(port_left,  baud, timeout)
+            self.ser_right = self._open_port(port_right, baud, timeout)
 
         self.sub = self.create_subscription(
             Float32MultiArray, '/wheel_rpm', self.rpm_callback, 10)
@@ -51,11 +52,13 @@ class SerialBridgeNode(Node):
         self.x = self.y = self.yaw = 0.0
         self.last_time = self.get_clock().now()
 
-        # Cumulative tick tracking for velocity computation (per-board timestamps)
-        self._prev_fl = self._prev_fr = 0
-        self._prev_bl = self._prev_br = 0
-        self._prev_tick_time_front = self.get_clock().now()
-        self._prev_tick_time_rear  = self.get_clock().now()
+        # Cumulative tick tracking (per-board timestamps)
+        # LEFT board:  M1=FL, M2=BL
+        # RIGHT board: M1=FR, M2=BR
+        self._prev_fl = self._prev_bl = 0
+        self._prev_fr = self._prev_br = 0
+        self._prev_tick_time_left  = self.get_clock().now()
+        self._prev_tick_time_right = self.get_clock().now()
 
         # Latest velocity estimates (ticks/sec)
         self._vel_fl = self._vel_fr = 0.0
@@ -64,7 +67,7 @@ class SerialBridgeNode(Node):
         self.create_timer(0.02, self.read_encoders)  # 50 Hz
 
         self.get_logger().info(
-            f'serial_bridge_node started (FRONT={port_front}, REAR={port_rear})')
+            f'serial_bridge_node started (LEFT={port_left}, RIGHT={port_right})')
 
     def _open_port(self, port, baud, timeout):
         try:
@@ -82,8 +85,10 @@ class SerialBridgeNode(Node):
             return
         fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
 
-        self._write_safe(self.ser_front, f'M1:{fl_rpm:.2f} M2:{fr_rpm:.2f}\n', 'FRONT')
-        self._write_safe(self.ser_rear,  f'M1:{bl_rpm:.2f} M2:{br_rpm:.2f}\n', 'REAR')
+        # LEFT board drives FL (M1) and BL (M2)
+        self._write_safe(self.ser_left,  f'M1:{fl_rpm:.2f} M2:{bl_rpm:.2f}\n', 'LEFT')
+        # RIGHT board drives FR (M1) and BR (M2)
+        self._write_safe(self.ser_right, f'M1:{fr_rpm:.2f} M2:{br_rpm:.2f}\n', 'RIGHT')
 
     def _write_safe(self, ser, line, label):
         if ser is None:
@@ -95,17 +100,17 @@ class SerialBridgeNode(Node):
 
     # ── Encoder reading ──────────────────────────────────────────────────────────
     def read_encoders(self):
-        if self.sim_mode or (self.ser_front is None and self.ser_rear is None):
+        if self.sim_mode or (self.ser_left is None and self.ser_right is None):
             self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
             return
 
         updated = False
-        updated |= self._read_board(self.ser_front, 'FRONT', is_front=True)
-        updated |= self._read_board(self.ser_rear,  'REAR',  is_front=False)
+        updated |= self._read_board(self.ser_left,  'LEFT',  is_left=True)
+        updated |= self._read_board(self.ser_right, 'RIGHT', is_left=False)
         if updated:
             self._compute_odom()
 
-    def _read_board(self, ser, label, is_front):
+    def _read_board(self, ser, label, is_left):
         try:
             if ser is None or not ser.in_waiting:
                 return False
@@ -132,24 +137,24 @@ class SerialBridgeNode(Node):
             return False
 
         now = self.get_clock().now()
-        if is_front:
-            dt = (now - self._prev_tick_time_front).nanoseconds / 1e9
+        if is_left:
+            dt = (now - self._prev_tick_time_left).nanoseconds / 1e9
             if dt <= 0:
                 return False
-            self._vel_fl = (m1 - self._prev_fl) / dt
-            self._vel_fr = (m2 - self._prev_fr) / dt
+            self._vel_fl = (m1 - self._prev_fl) / dt  # M1 = FL
+            self._vel_bl = (m2 - self._prev_bl) / dt  # M2 = BL
             self._prev_fl = m1
-            self._prev_fr = m2
-            self._prev_tick_time_front = now
+            self._prev_bl = m2
+            self._prev_tick_time_left = now
         else:
-            dt = (now - self._prev_tick_time_rear).nanoseconds / 1e9
+            dt = (now - self._prev_tick_time_right).nanoseconds / 1e9
             if dt <= 0:
                 return False
-            self._vel_bl = (m1 - self._prev_bl) / dt
-            self._vel_br = (m2 - self._prev_br) / dt
-            self._prev_bl = m1
+            self._vel_fr = (m1 - self._prev_fr) / dt  # M1 = FR
+            self._vel_br = (m2 - self._prev_br) / dt  # M2 = BR
+            self._prev_fr = m1
             self._prev_br = m2
-            self._prev_tick_time_rear = now
+            self._prev_tick_time_right = now
 
         return True
 

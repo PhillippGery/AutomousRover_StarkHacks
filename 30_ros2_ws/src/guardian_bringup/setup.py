@@ -12,7 +12,7 @@ setup(
         ('share/ament_index/resource_index/packages', ['resource/' + package_name]),
         ('share/' + package_name, ['package.xml']),
         (os.path.join('share', package_name, 'launch'), glob('launch/*.py')),
-        (os.path.join('share', package_name, 'config'), glob('config/*.yaml') + glob('config/*.rviz')),
+        (os.path.join('share', package_name, 'config'), glob('config/*.yaml') + glob('config/*.rviz') + glob('config/*.json') + glob('config/*.xml')),
     ],
     install_requires=['setuptools'],
     zip_safe=True,
@@ -22,8 +22,7 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
-            # TODO: add node entry points here
-            # 'node_name = guardian_bringup.node_file:main',
+            'demo_mission_node = guardian_bringup.demo_mission_node:main',
         ],
     },
 )

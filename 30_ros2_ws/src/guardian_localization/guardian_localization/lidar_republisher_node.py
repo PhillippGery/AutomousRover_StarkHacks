@@ -5,6 +5,7 @@
 
 import rclpy
 from rclpy.node import Node
+from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import LaserScan
 
 
@@ -19,8 +20,19 @@ class LidarRepublisherNode(Node):
         in_topic  = self.get_parameter('input_topic').value
         out_topic = self.get_parameter('output_topic').value
 
-        self.pub = self.create_publisher(LaserScan, out_topic, 10)
-        self.sub = self.create_subscription(LaserScan, in_topic, self.scan_callback, 10)
+        # Subscribe with BEST_EFFORT to match sweep scanner publisher
+        sub_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.BEST_EFFORT,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10)
+        # Publish with RELIABLE so SLAM toolbox can subscribe
+        pub_qos = QoSProfile(
+            reliability=QoSReliabilityPolicy.RELIABLE,
+            history=QoSHistoryPolicy.KEEP_LAST,
+            depth=10)
+
+        self.pub = self.create_publisher(LaserScan, out_topic, pub_qos)
+        self.sub = self.create_subscription(LaserScan, in_topic, self.scan_callback, sub_qos)
 
         self.get_logger().info(
             f'lidar_republisher_node: {in_topic} → {out_topic}')

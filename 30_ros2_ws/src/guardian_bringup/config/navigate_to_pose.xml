@@ -1,0 +1,8 @@
+<root BTCPP_format="4" main_tree_to_execute="MainTree">
+  <BehaviorTree ID="MainTree">
+    <Sequence name="navigate_to_pose">
+      <ComputePathToPose goal="{goal}" path="{path}" planner_id="{planner_id}"/>
+      <FollowPath path="{path}" controller_id="{controller_id}" goal_checker_id="{goal_checker_id}"/>
+    </Sequence>
+  </BehaviorTree>
+</root>
