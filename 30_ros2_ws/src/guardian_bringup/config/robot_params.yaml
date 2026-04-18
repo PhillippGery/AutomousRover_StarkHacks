@@ -7,7 +7,7 @@ serial_bridge_node:
     wheel_radius: 0.0748
     wheel_base_length: 0.25
     wheel_base_width: 0.20
-    cpr: 4.0
+    cpr: 175.0
     sim_mode: false
 
 mecanum_kinematics_node:

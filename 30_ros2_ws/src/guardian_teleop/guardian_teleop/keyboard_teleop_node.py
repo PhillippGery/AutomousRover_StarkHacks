@@ -29,6 +29,7 @@ GUARDIAN Keyboard Teleop
   q     rotate left
   e     rotate right
   space stop
+  +/-   speed up/down
   x     quit
 ------------------------
 """
@@ -49,10 +50,12 @@ class KeyboardTeleopNode(Node):
     def run(self):
         lin = self.get_parameter('linear_speed').value
         ang = self.get_parameter('angular_speed').value
+        speed_scale = 0.4  # start at 40% (~75 ticks/sec at 0.5m/s with CPR=175)
 
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)
         print(BANNER)
+        print(f'Speed: {speed_scale*100:.0f}%  (use +/- to adjust)')
         try:
             tty.setraw(fd)
             while rclpy.ok():
@@ -60,9 +63,17 @@ class KeyboardTeleopNode(Node):
                 twist = Twist()
                 if key in KEYS:
                     vx, vy, oz = KEYS[key]
-                    twist.linear.x  = vx * lin
-                    twist.linear.y  = vy * lin
-                    twist.angular.z = oz * ang
+                    twist.linear.x  = vx * lin * speed_scale
+                    twist.linear.y  = vy * lin * speed_scale
+                    twist.angular.z = oz * ang * speed_scale
+                elif key in ('+', '='):
+                    speed_scale = min(1.0, speed_scale + 0.1)
+                    print(f'\rSpeed: {speed_scale*100:.0f}%  ', end='', flush=True)
+                    continue
+                elif key == '-':
+                    speed_scale = max(0.1, speed_scale - 0.1)
+                    print(f'\rSpeed: {speed_scale*100:.0f}%  ', end='', flush=True)
+                    continue
                 elif key in (' ', 'k'):
                     pass  # zero twist = stop
                 elif key in ('x', '\x03'):
