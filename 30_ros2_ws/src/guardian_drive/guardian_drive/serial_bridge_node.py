@@ -24,7 +24,8 @@ class SerialBridgeNode(Node):
         self.declare_parameter('wheel_radius',       0.048)
         self.declare_parameter('wheel_base_length',  0.25)
         self.declare_parameter('wheel_base_width',   0.20)
-        self.declare_parameter('cpr',                4.0)   # encoder counts per wheel rev
+        self.declare_parameter('cpr',                175.0)
+        self.declare_parameter('max_ticks_per_sec',  3000.0)
         self.declare_parameter('sim_mode',           False)
 
         self.sim_mode  = self.get_parameter('sim_mode').value
@@ -32,7 +33,8 @@ class SerialBridgeNode(Node):
         port_rear      = self.get_parameter('serial_port_rear').value
         baud           = self.get_parameter('baud_rate').value
         timeout        = self.get_parameter('serial_timeout').value
-        self.cpr       = self.get_parameter('cpr').value
+        self.cpr              = self.get_parameter('cpr').value
+        self.max_ticks_per_sec = self.get_parameter('max_ticks_per_sec').value
 
         if self.sim_mode:
             self.ser_front = self.ser_rear = None
@@ -80,11 +82,12 @@ class SerialBridgeNode(Node):
             return
         fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
 
-        # boards accept ticks/sec — convert from RPM
-        fl = int(round(fl_rpm * self.cpr / 60.0))
-        fr = int(round(fr_rpm * self.cpr / 60.0))
-        bl = int(round(bl_rpm * self.cpr / 60.0))
-        br = int(round(br_rpm * self.cpr / 60.0))
+        max_rpm = 251.0
+        scale   = self.max_ticks_per_sec / max_rpm
+        fl = int(round(fl_rpm * scale))
+        fr = int(round(fr_rpm * scale))
+        bl = int(round(bl_rpm * scale))
+        br = int(round(br_rpm * scale))
 
         self._write_safe(self.ser_front, f'M1:{fl} M2:{fr}\n', 'FRONT')
         self._write_safe(self.ser_rear,  f'M1:{bl} M2:{br}\n', 'REAR')
@@ -99,7 +102,7 @@ class SerialBridgeNode(Node):
 
     # ── Encoder reading ──────────────────────────────────────────────────────────
     def read_encoders(self):
-        if self.sim_mode:
+        if self.sim_mode or (self.ser_front is None and self.ser_rear is None):
             self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
             return
 

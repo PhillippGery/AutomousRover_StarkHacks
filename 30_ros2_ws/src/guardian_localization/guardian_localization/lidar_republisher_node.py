@@ -26,6 +26,7 @@ class LidarRepublisherNode(Node):
             f'lidar_republisher_node: {in_topic} → {out_topic}')
 
     def scan_callback(self, msg: LaserScan):
+        msg.header.stamp    = self.get_clock().now().to_msg()
         msg.header.frame_id = self.get_parameter('frame_id').value
         self.pub.publish(msg)
 
