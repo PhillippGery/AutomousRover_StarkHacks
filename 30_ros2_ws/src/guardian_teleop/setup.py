@@ -22,6 +22,7 @@ setup(
         'console_scripts': [
             'quest_bridge_node = guardian_teleop.quest_bridge_node:main',
             'joystick_fallback_node = guardian_teleop.joystick_fallback_node:main',
+            'keyboard_teleop_node = guardian_teleop.keyboard_teleop_node:main',
         ],
     },
 )

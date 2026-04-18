@@ -10,12 +10,10 @@ from launch_ros.actions import Node
 def generate_launch_description():
     return LaunchDescription([
         Node(
-            package='teleop_twist_keyboard',
-            executable='teleop_twist_keyboard',
-            name='teleop_twist_keyboard',
+            package='guardian_teleop',
+            executable='keyboard_teleop_node',
+            name='keyboard_teleop_node',
             output='screen',
-            prefix='xterm -e',  # opens in a separate terminal window for keyboard input
-            remappings=[('/cmd_vel', '/cmd_vel')],
         ),
         Node(
             package='guardian_drive',
