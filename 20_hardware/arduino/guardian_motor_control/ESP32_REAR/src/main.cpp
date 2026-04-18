@@ -4,47 +4,43 @@
 // =============================================================================
 // PIN DEFINITIONS — ESP32 Feather V2, REAR board
 // =============================================================================
-// Motor 1 BL
-#define M1_DIR_PIN  12
-#define M1_PWM_PIN  13
-#define M1_ENC_A    34
-#define M1_ENC_B    39
+// Back Left (BL) — Matches ROS "M1"
+const int ENCODER_BL_A = 34;
+const int ENCODER_BL_B = 39;
+const int PWM_BL = 25;
+const int DIR_BL = 26;
+const int PWM_CH_BL = 0;
 
-// Motor 2 BR — uncomment when wired
-#define M2_DIR_PIN  27
-#define M2_PWM_PIN  33
-#define M2_ENC_A    35
-#define M2_ENC_B    32
-
-// =============================================================================
-// PWM CHANNELS
-// =============================================================================
-const int PWM_CH_M1 = 0;
-const int PWM_CH_M2 = 1;
+// Back Right (BR) — Matches ROS "M2"
+const int ENCODER_BR_A = 15;
+const int ENCODER_BR_B = 32;
+const int PWM_BR = 33;
+const int DIR_BR = 27;
+const int PWM_CH_BR = 1;
 
 // =============================================================================
 // ENCODER TICKS
 // =============================================================================
-volatile long ticks_M1 = 0; long prev_ticks_M1 = 0;
-volatile long ticks_M2 = 0; long prev_ticks_M2 = 0;
+volatile long ticks_BL = 0; long prev_ticks_BL = 0;
+volatile long ticks_BR = 0; long prev_ticks_BR = 0;
 
 // =============================================================================
 // VELOCITY FILTERS
 // =============================================================================
-float vel_history_M1[4] = {0,0,0,0}; int vel_index_M1 = 0;
-float vel_history_M2[4] = {0,0,0,0}; int vel_index_M2 = 0;
+float vel_history_BL[4] = {0, 0, 0, 0}; int vel_index_BL = 0;
+float vel_history_BR[4] = {0, 0, 0, 0}; int vel_index_BR = 0;
 
 // =============================================================================
-// PID CONTROLLERS — 5ms loop
+// PID CONTROLLERS — Tuned for 20ms Loop
 // =============================================================================
-PIDController pidM1(0.05f, 0.2f, 0.0f, 0.005f, 15000.0f);
-PIDController pidM2(0.05f, 0.2f, 0.0f, 0.005f, 15000.0f);
+PIDController pidBL(0.1f, 0.02f, 0.0f, 0.02f, 15000.0f);
+PIDController pidBR(0.1f, 0.02f, 0.0f, 0.02f, 15000.0f);
 
 // =============================================================================
 // TARGET SPEEDS (ticks/sec) — set via serial
 // =============================================================================
-float target_M1 = 0.0f;
-float target_M2 = 0.0f;
+float target_BL = 0.0f;
+float target_BR = 0.0f;
 
 // =============================================================================
 // SERIAL PARSING
@@ -62,10 +58,9 @@ void IRAM_ATTR onTimer() { run_pid_flag = true; }
 // =============================================================================
 // ENCODER ISRs
 // =============================================================================
-void IRAM_ATTR readEncoderM1() { if (digitalRead(M1_ENC_B)) ticks_M1++; else ticks_M1--; }
-#ifdef M2_ENC_A
-void IRAM_ATTR readEncoderM2() { if (digitalRead(M2_ENC_B)) ticks_M2++; else ticks_M2--; }
-#endif
+// NOTE: If a wheel runs away to max speed, flip the ++ and -- here!
+void IRAM_ATTR readEncoderBL() { if (digitalRead(ENCODER_BL_B)) ticks_BL++; else ticks_BL--; }
+void IRAM_ATTR readEncoderBR() { if (digitalRead(ENCODER_BR_B)) ticks_BR++; else ticks_BR--; }
 
 // =============================================================================
 // TIMERS
@@ -76,7 +71,7 @@ unsigned long last_print_time = 0;
 // VELOCITY HELPER
 // =============================================================================
 float computeVelocity(long cur, long &prev, float* history, int &index) {
-  float raw = (cur - prev) / 0.005f;  // 5ms timer
+  float raw = (cur - prev) / 0.02f;
   prev = cur;
   if (raw >  5000.0f) raw =  5000.0f;
   if (raw < -5000.0f) raw = -5000.0f;
@@ -91,32 +86,27 @@ float computeVelocity(long cur, long &prev, float* history, int &index) {
 void setup() {
   Serial.begin(115200);
 
-  // M1 (BL)
-  pinMode(M1_ENC_A, INPUT_PULLUP);
-  pinMode(M1_ENC_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(M1_ENC_A), readEncoderM1, RISING);
-  pinMode(M1_DIR_PIN, OUTPUT);
-  ledcSetup(PWM_CH_M1, 5000, 8); ledcAttachPin(M1_PWM_PIN, PWM_CH_M1);
-  ledcWrite(PWM_CH_M1, 0);
+  // Encoder pins
+  pinMode(ENCODER_BL_A, INPUT_PULLUP); pinMode(ENCODER_BL_B, INPUT_PULLUP);
+  pinMode(ENCODER_BR_A, INPUT_PULLUP); pinMode(ENCODER_BR_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_BL_A), readEncoderBL, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_BR_A), readEncoderBR, RISING);
 
-#ifdef M2_ENC_A
-  // M2 (BR)
-  pinMode(M2_ENC_A, INPUT_PULLUP);
-  pinMode(M2_ENC_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(M2_ENC_A), readEncoderM2, RISING);
-  pinMode(M2_DIR_PIN, OUTPUT);
-  ledcSetup(PWM_CH_M2, 5000, 8); ledcAttachPin(M2_PWM_PIN, PWM_CH_M2);
-  ledcWrite(PWM_CH_M2, 0);
-#endif
+  // Motor pins
+  pinMode(DIR_BL, OUTPUT); pinMode(DIR_BR, OUTPUT);
+  ledcSetup(PWM_CH_BL, 5000, 8); ledcAttachPin(PWM_BL, PWM_CH_BL);
+  ledcSetup(PWM_CH_BR, 5000, 8); ledcAttachPin(PWM_BR, PWM_CH_BR);
+  ledcWrite(PWM_CH_BL, 0);
+  ledcWrite(PWM_CH_BR, 0);
 
-  // 5ms hardware timer
+  // 20ms hardware timer
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 5000, true);
+  timerAlarmWrite(timer, 20000, true);
   timerAlarmEnable(timer);
 
   last_msg_time = millis();
-  Serial.println("REAR ready");
+  Serial.println("BACK ready");
 }
 
 // =============================================================================
@@ -124,14 +114,16 @@ void setup() {
 // =============================================================================
 void loop() {
 
-  // --- 1. RECEIVE COMMANDS: "M1:xxx M2:xxx\n" (RPM) ---
+  // --- 1. RECEIVE COMMANDS ---
+  // Matches "M1:xxx M2:xxx\n" (M1 goes to BL, M2 goes to BR)
   while (Serial.available() > 0) {
     char c = Serial.read();
     if (c == '\n') {
-      float v1, v2;
+      float v1, v2; 
       if (sscanf(input_string.c_str(), "M1:%f M2:%f", &v1, &v2) == 2) {
-        target_M1 = (v1 / 60.0f) * 175.0f;
-        target_M2 = (v2 / 60.0f) * 175.0f;
+        // Convert the incoming RPM back into Ticks/Sec
+        target_BL = (v1 / 60.0f) * 175.0f;
+        target_BR = (v2 / 60.0f) * 175.0f;
         last_msg_time = millis();
       }
       input_string = "";
@@ -140,61 +132,60 @@ void loop() {
     }
   }
 
-  // --- 1b. SAFETY STOP — no message for 2000ms ---
+  // --- 1b. SAFETY STOP (Relaxed 2000ms for Keyboard Teleop) ---
   if (millis() - last_msg_time > 2000) {
-    target_M1 = 0.0f;
-    target_M2 = 0.0f;
+    target_BL = 0.0f;
+    target_BR = 0.0f;
   }
 
-  // --- 2. PID LOOP (every 5ms) ---
+  // --- 2. PID LOOP (every 20ms) ---
   if (run_pid_flag) {
     run_pid_flag = false;
 
     noInterrupts();
-    long cur_M1 = ticks_M1;
-    long cur_M2 = ticks_M2;
+    long cur_BL = ticks_BL;
+    long cur_BR = ticks_BR;
     interrupts();
 
-    float vel_M1 = computeVelocity(cur_M1, prev_ticks_M1, vel_history_M1, vel_index_M1);
-    float vel_M2 = computeVelocity(cur_M2, prev_ticks_M2, vel_history_M2, vel_index_M2);
+    float vel_BL = computeVelocity(cur_BL, prev_ticks_BL, vel_history_BL, vel_index_BL);
+    float vel_BR = computeVelocity(cur_BR, prev_ticks_BR, vel_history_BR, vel_index_BR);
 
-    // --- Motor 1 (BL) Deadband & Minimum Power ---
-    float out_M1 = 0.0f;
-    if (target_M1 == 0.0f) {
-      out_M1 = 0.0f;
+    // --- Motor 1 (Back Left) Deadband & Minimum Power ---
+    float out_BL = 0.0f;
+    if (abs(target_BL) < 2.0f) {
+      out_BL = 0.0f; 
     } else {
-      out_M1 = pidM1.compute(target_M1, vel_M1);
-      if (target_M1 > 0.0f) out_M1 += 25.0f;
-      if (target_M1 < 0.0f) out_M1 -= 25.0f;
+      out_BL = pidBL.compute(target_BL, vel_BL);
+      if (target_BL > 0.0f) out_BL += 25.0f; 
+      if (target_BL < 0.0f) out_BL -= 25.0f; 
     }
 
-    // --- Motor 2 (BR) Deadband & Minimum Power ---
-    float out_M2 = 0.0f;
-    if (target_M2 == 0.0f) {
-      out_M2 = 0.0f;
+    // --- Motor 2 (Back Right) Deadband & Minimum Power ---
+    float out_BR = 0.0f;
+    if (abs(target_BR) < 2.0f) {
+      out_BR = 0.0f; 
     } else {
-      out_M2 = pidM2.compute(target_M2, vel_M2);
-      if (target_M2 > 0.0f) out_M2 += 25.0f;
-      if (target_M2 < 0.0f) out_M2 -= 25.0f;
+      out_BR = pidBR.compute(target_BR, vel_BR);
+      if (target_BR > 0.0f) out_BR += 25.0f; 
+      if (target_BR < 0.0f) out_BR -= 25.0f; 
     }
 
-    out_M1 = constrain(out_M1, -255.0f, 255.0f);
-    out_M2 = constrain(out_M2, -255.0f, 255.0f);
+    out_BL = constrain(out_BL, -255.0f, 255.0f);
+    out_BR = constrain(out_BR, -255.0f, 255.0f);
 
-    // M1 (BL): forward = LOW
-    digitalWrite(M1_DIR_PIN, out_M1 >= 0 ? LOW : HIGH);
-    ledcWrite(PWM_CH_M1, (int)abs(out_M1));
+    // BL: forward = LOW
+    digitalWrite(DIR_BL, out_BL >= 0 ? LOW : HIGH);
+    ledcWrite(PWM_CH_BL, (int)abs(out_BL));
 
-#ifdef M2_ENC_A
-    // M2 (BR): forward = HIGH
-    digitalWrite(M2_DIR_PIN, out_M2 >= 0 ? HIGH : LOW);
-    ledcWrite(PWM_CH_M2, (int)abs(out_M2));
-#endif
+    // BR: inverted vs BL — forward = HIGH
+    digitalWrite(DIR_BR, out_BR >= 0 ? HIGH : LOW);
+    ledcWrite(PWM_CH_BR, (int)abs(out_BR));
 
     // --- 3. SEND CUMULATIVE TICKS TO HOST (every 50ms) ---
+    // Sends M1 and M2 so ROS knows what it is looking at
     if (millis() - last_print_time >= 50) {
       last_print_time = millis();
-      Serial.printf("ENC:M1:%ld M2:%ld\n", ticks_M1, ticks_M2);
+      Serial.printf("ENC:M1:%ld M2:%ld\n", ticks_BL, ticks_BR);
     }
   }
 }
