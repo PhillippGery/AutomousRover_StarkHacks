@@ -16,10 +16,10 @@
 #define M1_ENC_B      39
 
 // Motor 2 BR
-#define M2_DIR_PIN    27
-#define M2_PWM_PIN    33
-#define M2_ENC_A      35
-#define M2_ENC_B      32
+//#define M2_DIR_PIN    27
+//#define M2_PWM_PIN    33
+//#define M2_ENC_A      35
+//#define M2_ENC_B      32
 
 // =============================================================================
 // PWM CHANNELS

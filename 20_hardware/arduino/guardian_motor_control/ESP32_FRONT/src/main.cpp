@@ -2,70 +2,46 @@
 #include "PIDController.h"
 
 // =============================================================================
-// BOARD IDENTIFIER
-// =============================================================================
-#define BOARD_ID "FRONT"
-
-// =============================================================================
 // PIN DEFINITIONS — ESP32 Feather V2, FRONT board
 // =============================================================================
-// Motor 1 FL
-// Motor 1
-#define M1_DIR_PIN   26   // A0 — output capable
-#define M1_PWM_PIN   25   // A1 — output capable  
-#define M1_ENC_A     34   // A2 — input only ✅ encoder OK
-#define M1_ENC_B     39   // A3 — input only ✅ encoder OK
+// Front Left (M1)
+const int ENCODER_FL_A = 34; 
+const int ENCODER_FL_B = 39;
+const int PWM_FL = 25;       
+const int DIR_FL = 26;       
+const int PWM_CH_FL = 0;
 
-// Motor 2
-#define M2_DIR_PIN   27   // output capable
-#define M2_PWM_PIN   33   // output capable
-#define M2_ENC_A     15   // fully bidirectional, interrupt capable
-#define M2_ENC_B     32   // fully bidirectional, interrupt capable
-
-// =============================================================================
-// PWM CHANNELS
-// =============================================================================
-const int PWM_CH_M1 = 0;
-const int PWM_CH_M2 = 1;
-
-// =============================================================================
-// ENCODER CPR
-// =============================================================================
-float CPR = 700.0;
+// Front Right (M2)
+const int ENCODER_FR_A = 15; 
+const int ENCODER_FR_B = 32;
+const int PWM_FR = 33;       
+const int DIR_FR = 27;       
+const int PWM_CH_FR = 1;
 
 // =============================================================================
 // ENCODER TICKS
 // =============================================================================
-volatile long ticks_M1 = 0; long prev_ticks_M1 = 0;
-volatile long ticks_M2 = 0; long prev_ticks_M2 = 0;
+volatile long ticks_FL = 0; long prev_ticks_FL = 0;
+volatile long ticks_FR = 0; long prev_ticks_FR = 0;
 
 // =============================================================================
 // VELOCITY FILTERS
 // =============================================================================
-float vel_history_M1[4] = {0,0,0,0}; int vel_index_M1 = 0;
-float vel_history_M2[4] = {0,0,0,0}; int vel_index_M2 = 0;
+float vel_history_FL[4] = {0, 0, 0, 0}; int vel_index_FL = 0;
+float vel_history_FR[4] = {0, 0, 0, 0}; int vel_index_FR = 0;
 
 // =============================================================================
-// PID CONTROLLERS — same gains that worked in single motor test
+// PID CONTROLLERS — Tuned for 20ms Loop
 // =============================================================================
-PIDController pidM1(2.5f, 0.0f, 0.02f, 0.005f, 15000.0f);
-PIDController pidM2(2.5f, 0.0f, 0.02f, 0.005f, 15000.0f);
+// Kp = 0.02, Ki = 0.005, Kd = 0.0, dt = 0.02
+PIDController pidFL(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
+PIDController pidFR(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
 
 // =============================================================================
-// TARGET SPEEDS — set via serial (ticks/s internally)
+// TARGET SPEEDS (ticks/sec)
 // =============================================================================
-float target_M1 = 0.0f;
-float target_M2 = 0.0f;
-
-// Last PWM outputs (file-scope so telemetry can read them)
-float out_M1 = 0.0f;
-float out_M2 = 0.0f;
-
-// =============================================================================
-// SERIAL PARSING
-// =============================================================================
-String input_string = "";
-unsigned long last_msg_time = 0;  // for 500ms safety stop
+float target_FL = 0.0f; // Spin at a healthy speed
+float target_FR = 0.0f;    // Test the deadband (should be dead silent)
 
 // =============================================================================
 // HARDWARE TIMER
@@ -77,14 +53,19 @@ void IRAM_ATTR onTimer() { run_pid_flag = true; }
 // =============================================================================
 // ENCODER ISRs
 // =============================================================================
-void IRAM_ATTR readEncoderM1() { if (digitalRead(M1_ENC_B)) ticks_M1++; else ticks_M1--; }
-void IRAM_ATTR readEncoderM2() { if (digitalRead(M2_ENC_B)) ticks_M2++; else ticks_M2--; }
+void IRAM_ATTR readEncoderFL() { if (digitalRead(ENCODER_FL_B)) ticks_FL--; else ticks_FL++; }
+void IRAM_ATTR readEncoderFR() { if (digitalRead(ENCODER_FR_B)) ticks_FR++; else ticks_FR--; }
 
 // =============================================================================
-// VELOCITY HELPER — identical to OLDController
+// TIMERS
+// =============================================================================
+unsigned long last_print_time = 0;
+
+// =============================================================================
+// VELOCITY HELPER
 // =============================================================================
 float computeVelocity(long cur, long &prev, float* history, int &index) {
-  float raw = (cur - prev) / 0.005f;
+  float raw = (cur - prev) / 0.02f; // Matched to 20ms timer
   prev = cur;
   if (raw >  5000.0f) raw =  5000.0f;
   if (raw < -5000.0f) raw = -5000.0f;
@@ -94,121 +75,88 @@ float computeVelocity(long cur, long &prev, float* history, int &index) {
 }
 
 // =============================================================================
-// TIMERS FOR TELEMETRY AND HEARTBEAT
-// =============================================================================
-unsigned long last_print_time  = 0;
-unsigned long last_heartbeat   = 0;
-
-// =============================================================================
 // SETUP
 // =============================================================================
 void setup() {
   Serial.begin(115200);
+  Serial.println("=== 2 Motor PID Test (FL + FR) ===");
+  Serial.println("time_ms,target_FL,vel_FL,pwm_FL,target_FR,vel_FR,pwm_FR");
 
-  // M1 (FL)
-  pinMode(M1_ENC_A, INPUT_PULLUP);
-  pinMode(M1_ENC_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(M1_ENC_A), readEncoderM1, RISING);
-  pinMode(M1_DIR_PIN, OUTPUT);
-  ledcSetup(PWM_CH_M1, 5000, 8); ledcAttachPin(M1_PWM_PIN, PWM_CH_M1);
-  ledcWrite(PWM_CH_M1, 0);
+  // Encoder pins
+  pinMode(ENCODER_FL_A, INPUT_PULLUP); pinMode(ENCODER_FL_B, INPUT_PULLUP);
+  pinMode(ENCODER_FR_A, INPUT_PULLUP); pinMode(ENCODER_FR_B, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_FL_A), readEncoderFL, RISING);
+  attachInterrupt(digitalPinToInterrupt(ENCODER_FR_A), readEncoderFR, RISING);
 
-  // M2 (FR)
-  pinMode(M2_ENC_A, INPUT_PULLUP);
-  pinMode(M2_ENC_B, INPUT_PULLUP);
-  attachInterrupt(digitalPinToInterrupt(M2_ENC_A), readEncoderM2, RISING);
-  pinMode(M2_DIR_PIN, OUTPUT);
-  ledcSetup(PWM_CH_M2, 5000, 8); ledcAttachPin(M2_PWM_PIN, PWM_CH_M2);
-  ledcWrite(PWM_CH_M2, 0);
+  // Motor pins
+  pinMode(DIR_FL, OUTPUT); pinMode(DIR_FR, OUTPUT);
+  ledcSetup(PWM_CH_FL, 5000, 8); ledcAttachPin(PWM_FL, PWM_CH_FL);
+  ledcSetup(PWM_CH_FR, 5000, 8); ledcAttachPin(PWM_FR, PWM_CH_FR);
 
-  // 5ms hardware timer — identical to OLDController
+  // Stop both motors on boot
+  ledcWrite(PWM_CH_FL, 0);
+  ledcWrite(PWM_CH_FR, 0);
+
+  // 20ms hardware timer
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 5000, true);
+  timerAlarmWrite(timer, 20000, true);
   timerAlarmEnable(timer);
-
-  last_msg_time = millis();
-  Serial.println(BOARD_ID " ready");
 }
 
 // =============================================================================
 // LOOP
 // =============================================================================
 void loop() {
-
-  // --- 1. RECEIVE FROM AMD MiniPC (non-blocking) ---
-  // Expected format: "M1:150 M2:-100\n"
-  while (Serial.available() > 0) {
-    char c = Serial.read();
-    if (c == '\n') {
-      int v1, v2;
-      int parsed = sscanf(input_string.c_str(), "M1:%d M2:%d", &v1, &v2);
-      if (parsed == 2) {
-        target_M1 = (float)v1;
-        target_M2 = (float)v2;
-
-
-
-
-        last_msg_time = millis();
-      }
-      input_string = "";
-    } else {
-      input_string += c;
-    }
-  }
-
-  // --- 1b. SAFETY STOP — no message for 500ms ---
-  if (millis() - last_msg_time > 500) {
-    target_M1 = 0.0f;
-    target_M2 = 0.0f;
-  }
-
-  // --- 2. FAST PID LOOP (every 5ms) ---
   if (run_pid_flag) {
     run_pid_flag = false;
 
+    // 1. Safely read ticks
     noInterrupts();
-    long cur_M1 = ticks_M1;
-    long cur_M2 = ticks_M2;
+    long cur_FL = ticks_FL;
+    long cur_FR = ticks_FR;
     interrupts();
 
-    float vel_M1 = computeVelocity(cur_M1, prev_ticks_M1, vel_history_M1, vel_index_M1);
-    float vel_M2 = computeVelocity(cur_M2, prev_ticks_M2, vel_history_M2, vel_index_M2);
+    // 2. Compute velocities
+    float vel_FL = computeVelocity(cur_FL, prev_ticks_FL, vel_history_FL, vel_index_FL);
+    float vel_FR = computeVelocity(cur_FR, prev_ticks_FR, vel_history_FR, vel_index_FR);
 
-    //Serial.printf("VEL: M1:%.1f M2:%.1f\n", vel_M1, vel_M2); // debug velocity
+    // 3. Run PID with Deadband
+    float out_FL = 0.0f;
+    float out_FR = 0.0f;
 
-    target_M1 = 0.0f;
-    target_M2 = 0.0f;
-    
+    if (target_FL == 0.0f) {
+      out_FL = 0.0f;
+    } else {
+      out_FL = pidFL.compute(target_FL, vel_FL); // Restored!
+    }
 
-    out_M1 = pidM1.compute(target_M1, vel_M1);
-    out_M2 = pidM2.compute(target_M2, vel_M2);
+    if (target_FR == 0.0f) {
+      out_FR = 0.0f;
+    } else {
+      out_FR = pidFR.compute(target_FR, vel_FR); // Restored!
+    }
 
-    out_M1 = constrain(out_M1, -255.0f, 255.0f);
-    out_M2 = constrain(out_M2, -255.0f, 255.0f);
+    // 4. Constrain outputs securely
+    out_FL = constrain(out_FL, -255.0f, 255.0f);
+    out_FR = constrain(out_FR, -255.0f, 255.0f);
 
-    // M1 (FL): forward = LOW
-    digitalWrite(M1_DIR_PIN, out_M1 >= 0 ? LOW : HIGH);
-    ledcWrite(PWM_CH_M1, (int)abs(out_M1));
+    // 5. Apply to motors (Bidirectional)
+    // FL: forward = LOW
+    digitalWrite(DIR_FL, out_FL >= 0 ? LOW : HIGH);
+    ledcWrite(PWM_CH_FL, (int)abs(out_FL));      // Restored!
 
-    // M2 (FR): inverted vs M1 — forward = HIGH (mirrors OLDController FR behaviour)
-    digitalWrite(M2_DIR_PIN, out_M2 >= 0 ? HIGH : LOW);
-    ledcWrite(PWM_CH_M2, (int)abs(out_M2));
-  }
+    // FR: inverted vs FL — forward = HIGH
+    digitalWrite(DIR_FR, out_FR >= 0 ? HIGH : LOW); 
+    ledcWrite(PWM_CH_FR, (int)abs(out_FR));      // Restored!
 
-  // --- 3. SEND ENCODER TICKS TO AMD MiniPC (every 50ms) ---
-  if (millis() - last_print_time >= 50) {
-    last_print_time = millis();
-    Serial.printf("ENC:M1:%ld M2:%ld\n", ticks_M1, ticks_M2);
-    //degug cal rpm actual and sent on serial
-  
-    
-  }
-
-  // --- 4. HEARTBEAT (every 2s) ---
-  if (millis() - last_heartbeat >= 2000) {
-    last_heartbeat = millis();
-    Serial.println(BOARD_ID " alive");
+    // 6. Log every 50ms
+    if (millis() - last_print_time >= 50) {
+      last_print_time = millis();
+      Serial.printf("%lu,%.1f,%.1f,%.1f,%.1f,%.1f,%.1f\n",
+        millis(),
+        target_FL, vel_FL, out_FL,
+        target_FR, vel_FR, out_FR);
+    }
   }
 }
