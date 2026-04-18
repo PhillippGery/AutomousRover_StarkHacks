@@ -6,10 +6,10 @@ Install via apt:
 
 ```bash
 sudo apt install -y \
-  ros-humble-nav2-bringup \
-  ros-humble-robot-localization \
-  ros-humble-realsense2-camera \
-  ros-humble-teleop-twist-joy
+  ros-jazzy-nav2-bringup \
+  ros-jazzy-robot-localization \
+  ros-jazzy-realsense2-camera \
+  ros-jazzy-teleop-twist-joy
 ```
 
 ## Python Packages
@@ -48,10 +48,10 @@ pip install -e ".[feetech]"
 ```bash
 sudo apt update
 sudo apt install -y \
-  ros-humble-nav2-bringup \
-  ros-humble-robot-localization \
-  ros-humble-realsense2-camera \
-  ros-humble-teleop-twist-joy
+  ros-jazzy-nav2-bringup \
+  ros-jazzy-robot-localization \
+  ros-jazzy-realsense2-camera \
+  ros-jazzy-teleop-twist-joy
 
 pip3 install pyserial numpy
 

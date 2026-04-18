@@ -6,7 +6,7 @@
 
 set -e
 
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source "$(dirname "$0")/../30_ros2_ws/install/setup.bash"
 
 echo ""

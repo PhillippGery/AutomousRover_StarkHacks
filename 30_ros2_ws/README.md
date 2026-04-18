@@ -17,7 +17,7 @@ ROS2 Humble workspace using `ament_python` (pure Python — no C++, no CMakeList
 
 ```bash
 cd ~/GUARDIAN
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 cd 30_ros2_ws
 rosdep install --from-paths src --ignore-src -r -y
 colcon build --symlink-install

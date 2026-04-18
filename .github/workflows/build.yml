@@ -8,26 +8,26 @@ on:
 
 jobs:
   build-and-test:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
 
-      - name: Setup ROS2 Humble
+      - name: Setup ROS2 Jazzy
         uses: ros-tooling/setup-ros@v0.7
         with:
-          required-ros-distributions: humble
+          required-ros-distributions: jazzy
 
       - name: Install dependencies with rosdep
         run: |
-          source /opt/ros/humble/setup.bash
+          source /opt/ros/jazzy/setup.bash
           cd 30_ros2_ws
           rosdep install --from-paths src --ignore-src -r -y
 
       - name: Build workspace
         run: |
-          source /opt/ros/humble/setup.bash
+          source /opt/ros/jazzy/setup.bash
           cd 30_ros2_ws
           colcon build --symlink-install --packages-up-to \
             guardian_drive \
@@ -38,6 +38,6 @@ jobs:
 
       - name: Run tests
         run: |
-          source /opt/ros/humble/setup.bash
+          source /opt/ros/jazzy/setup.bash
           cd 30_ros2_ws
           colcon test

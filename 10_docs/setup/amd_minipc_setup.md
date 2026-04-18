@@ -23,7 +23,7 @@ echo "deb [arch=$(dpkg --print-architecture) signed-by=/usr/share/keyrings/ros-a
   http://packages.ros.org/ros2/ubuntu $(. /etc/os-release && echo $UBUNTU_CODENAME) main" \
   | sudo tee /etc/apt/sources.list.d/ros2.list > /dev/null
 sudo apt update
-sudo apt install ros-humble-desktop -y
+sudo apt install ros-jazzy-desktop -y
 ```
 
 ### 3. Install colcon and rosdep
@@ -84,7 +84,7 @@ Plug both SO-101 follower arms into separate USB-C ports. Verify with `lsusb`.
 ### 10. Launch GUARDIAN
 
 ```bash
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 source ~/GUARDIAN/30_ros2_ws/install/setup.bash
 ros2 launch guardian_bringup guardian_full.launch.py
 ```
