@@ -8,7 +8,7 @@ set -e
 
 echo "Building GUARDIAN ROS2 workspace..."
 
-source /opt/ros/humble/setup.bash
+source /opt/ros/jazzy/setup.bash
 
 cd "$(dirname "$0")/../30_ros2_ws"
 
