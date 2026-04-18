@@ -49,10 +49,11 @@ class SerialBridgeNode(Node):
         self.x = self.y = self.yaw = 0.0
         self.last_time = self.get_clock().now()
 
-        # Cumulative tick tracking for velocity computation
+        # Cumulative tick tracking for velocity computation (per-board timestamps)
         self._prev_fl = self._prev_fr = 0
         self._prev_bl = self._prev_br = 0
-        self._prev_tick_time = self.get_clock().now()
+        self._prev_tick_time_front = self.get_clock().now()
+        self._prev_tick_time_rear  = self.get_clock().now()
 
         # Latest velocity estimates (ticks/sec)
         self._vel_fl = self._vel_fr = 0.0
@@ -136,22 +137,25 @@ class SerialBridgeNode(Node):
             return False
 
         now = self.get_clock().now()
-        dt  = (now - self._prev_tick_time).nanoseconds / 1e9
-        if dt <= 0:
-            return False
-
         if is_front:
+            dt = (now - self._prev_tick_time_front).nanoseconds / 1e9
+            if dt <= 0:
+                return False
             self._vel_fl = (m1 - self._prev_fl) / dt
             self._vel_fr = (m2 - self._prev_fr) / dt
             self._prev_fl = m1
             self._prev_fr = m2
+            self._prev_tick_time_front = now
         else:
+            dt = (now - self._prev_tick_time_rear).nanoseconds / 1e9
+            if dt <= 0:
+                return False
             self._vel_bl = (m1 - self._prev_bl) / dt
             self._vel_br = (m2 - self._prev_br) / dt
             self._prev_bl = m1
             self._prev_br = m2
+            self._prev_tick_time_rear = now
 
-        self._prev_tick_time = now
         return True
 
     # ── Odometry ─────────────────────────────────────────────────────────────────
