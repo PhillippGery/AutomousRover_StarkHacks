@@ -1,7 +1,16 @@
-guardian:
-  wheel_radius: 0.048      # meters — JGB37-3530 with mecanum wheel
-  wheel_base_length: 0.25  # meters — front to back, measure on chassis after build
-  wheel_base_width: 0.20   # meters — left to right, measure on chassis after build
-  max_rpm: 300.0
-  serial_port: /dev/ttyACM0
-  serial_baud: 115200
+serial_bridge_node:
+  ros__parameters:
+    serial_port: /dev/ttyACM0
+    baud_rate: 115200
+    serial_timeout: 1.0
+    wheel_radius: 0.048
+    wheel_base_length: 0.25
+    wheel_base_width: 0.20
+    sim_mode: false
+
+mecanum_kinematics_node:
+  ros__parameters:
+    wheel_radius: 0.048
+    wheel_base_length: 0.25
+    wheel_base_width: 0.20
+    max_rpm: 251.0

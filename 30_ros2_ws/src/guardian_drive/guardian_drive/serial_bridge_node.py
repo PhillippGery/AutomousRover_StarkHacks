@@ -23,17 +23,23 @@ class SerialBridgeNode(Node):
         self.declare_parameter('wheel_radius', 0.0748)
         self.declare_parameter('wheel_base_length', 0.25)
         self.declare_parameter('wheel_base_width', 0.20)
+        self.declare_parameter('sim_mode', False)
 
+        self.sim_mode = self.get_parameter('sim_mode').value
         port    = self.get_parameter('serial_port').value
         baud    = self.get_parameter('baud_rate').value
         timeout = self.get_parameter('serial_timeout').value
 
-        try:
-            self.ser = serial.Serial(port, baud, timeout=timeout)
-            self.get_logger().info(f'Opened serial port {port} at {baud} baud')
-        except serial.SerialException as e:
-            self.get_logger().warn(f'Could not open serial port {port}: {e}')
+        if self.sim_mode:
             self.ser = None
+            self.get_logger().warn('sim_mode=true — serial port disabled, publishing zero odometry')
+        else:
+            try:
+                self.ser = serial.Serial(port, baud, timeout=timeout)
+                self.get_logger().info(f'Opened serial port {port} at {baud} baud')
+            except serial.SerialException as e:
+                self.get_logger().warn(f'Could not open serial port {port}: {e}')
+                self.ser = None
 
         self.sub = self.create_subscription(
             Float32MultiArray, '/wheel_rpm', self.rpm_callback, 10)
@@ -61,6 +67,9 @@ class SerialBridgeNode(Node):
             self.get_logger().error(f'Serial write error: {e}')
 
     def read_encoders(self):
+        if self.sim_mode:
+            self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
+            return
         if self.ser is None or not self.ser.in_waiting:
             return
         try:
