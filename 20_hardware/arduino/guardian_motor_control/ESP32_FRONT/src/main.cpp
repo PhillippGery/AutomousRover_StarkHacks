@@ -33,8 +33,8 @@ float vel_history_FR[4] = {0, 0, 0, 0}; int vel_index_FR = 0;
 // =============================================================================
 // PID CONTROLLERS — Tuned for 20ms Loop
 // =============================================================================
-PIDController pidFL(2.0f, 0.1f, 0.0f, 0.02f, 15000.0f);
-PIDController pidFR(2.0f, 0.1f, 0.0f, 0.02f, 15000.0f);
+PIDController pidFL(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
+PIDController pidFR(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
 
 // =============================================================================
 // TARGET SPEEDS (ticks/sec) — set via serial
@@ -58,7 +58,7 @@ void IRAM_ATTR onTimer() { run_pid_flag = true; }
 // =============================================================================
 // ENCODER ISRs
 // =============================================================================
-void IRAM_ATTR readEncoderFL() { if (digitalRead(ENCODER_FL_B)) ticks_FL--; else ticks_FL++; }
+void IRAM_ATTR readEncoderFL() { if (digitalRead(ENCODER_FL_B)) ticks_FL++; else ticks_FL--; }
 void IRAM_ATTR readEncoderFR() { if (digitalRead(ENCODER_FR_B)) ticks_FR++; else ticks_FR--; }
 
 // =============================================================================
@@ -133,7 +133,7 @@ void loop() {
   }
 
   // --- 1b. SAFETY STOP — no message for 500ms ---
-  if (millis() - last_msg_time > 500) {
+  if (millis() - last_msg_time > 2000) {
     target_FL = 0.0f;
     target_FR = 0.0f;
   }
@@ -150,8 +150,30 @@ void loop() {
     float vel_FL = computeVelocity(cur_FL, prev_ticks_FL, vel_history_FL, vel_index_FL);
     float vel_FR = computeVelocity(cur_FR, prev_ticks_FR, vel_history_FR, vel_index_FR);
 
-    float out_FL = (target_FL == 0.0f) ? 0.0f : pidFL.compute(target_FL, vel_FL);
-    float out_FR = (target_FR == 0.0f) ? 0.0f : pidFR.compute(target_FR, vel_FR);
+    // --- Motor 1 (FL) Deadband & Minimum Power ---
+    float out_FL = 0.0f;
+    if (target_FL == 0.0f) {
+      out_FL = 0.0f; // <-- THE DEADBAND
+    } else {
+      out_FL = pidFL.compute(target_FL, vel_FL);
+      
+      // <-- THE MINIMUM POWER BOOST (Feed-Forward)
+      // Change '25.0f' to find where your motor wakes up
+      if (target_FL > 0.0f) out_FL += 5.0f; 
+      if (target_FL < 0.0f) out_FL -= 5.0f; 
+    }
+
+    // --- Motor 2 (FR) Deadband & Minimum Power ---
+    float out_FR = 0.0f;
+    if (target_FR == 0.0f) {
+      out_FR = 0.0f; // <-- THE DEADBAND
+    } else {
+      out_FR = pidFR.compute(target_FR, vel_FR);
+      
+      // <-- THE MINIMUM POWER BOOST (Feed-Forward)
+      if (target_FR > 0.0f) out_FR += 25.0f; 
+      if (target_FR < 0.0f) out_FR -= 25.0f; 
+    }
 
     out_FL = constrain(out_FL, -255.0f, 255.0f);
     out_FR = constrain(out_FR, -255.0f, 255.0f);
