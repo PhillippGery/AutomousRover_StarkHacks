@@ -4,6 +4,7 @@
 # Purpose: republishes Scanse Sweep scan to /scan for Nav2, fixes frame_id
 
 import rclpy
+from rclpy.duration import Duration
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, QoSReliabilityPolicy, QoSHistoryPolicy
 from sensor_msgs.msg import LaserScan
@@ -16,6 +17,7 @@ class LidarRepublisherNode(Node):
         self.declare_parameter('input_topic', '/sweep/scan')
         self.declare_parameter('output_topic', '/scan')
         self.declare_parameter('frame_id', 'laser')
+        self.declare_parameter('timestamp_offset_sec', 0.05)
 
         in_topic  = self.get_parameter('input_topic').value
         out_topic = self.get_parameter('output_topic').value
@@ -38,7 +40,9 @@ class LidarRepublisherNode(Node):
             f'lidar_republisher_node: {in_topic} → {out_topic}')
 
     def scan_callback(self, msg: LaserScan):
-        msg.header.stamp    = self.get_clock().now().to_msg()
+        offset_sec = float(self.get_parameter('timestamp_offset_sec').value)
+        stamp = self.get_clock().now() - Duration(seconds=offset_sec)
+        msg.header.stamp = stamp.to_msg()
         msg.header.frame_id = self.get_parameter('frame_id').value
         self.pub.publish(msg)
 
