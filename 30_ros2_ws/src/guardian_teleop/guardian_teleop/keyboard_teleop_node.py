@@ -42,7 +42,7 @@ def get_key(fd):
 class KeyboardTeleopNode(Node):
     def __init__(self):
         super().__init__('keyboard_teleop_node')
-        self.declare_parameter('linear_speed', 0.5)
+        self.declare_parameter('linear_speed', 0.05)
         self.declare_parameter('angular_speed', 1.0)
         self.pub = self.create_publisher(Twist, '/cmd_vel', 10)
         self.get_logger().info('keyboard_teleop_node started')
@@ -50,7 +50,7 @@ class KeyboardTeleopNode(Node):
     def run(self):
         lin = self.get_parameter('linear_speed').value
         ang = self.get_parameter('angular_speed').value
-        speed_scale = 0.4  # start at 40% (~75 ticks/sec at 0.5m/s with CPR=175)
+        speed_scale = 0.3  # start at 30% (~900 ticks/sec), use +/- to adjust
 
         fd = sys.stdin.fileno()
         old = termios.tcgetattr(fd)

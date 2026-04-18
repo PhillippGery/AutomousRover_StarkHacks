@@ -8,6 +8,7 @@ serial_bridge_node:
     wheel_base_length: 0.25
     wheel_base_width: 0.20
     cpr: 175.0
+    max_ticks_per_sec: 3000.0  # maps 251 RPM -> 3000 ticks/sec, tune down if too fast
     sim_mode: false
 
 mecanum_kinematics_node:
