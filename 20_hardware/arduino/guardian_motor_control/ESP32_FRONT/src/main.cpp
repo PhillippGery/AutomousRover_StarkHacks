@@ -33,8 +33,8 @@ float vel_history_FR[4] = {0, 0, 0, 0}; int vel_index_FR = 0;
 // =============================================================================
 // PID CONTROLLERS — Tuned for 20ms Loop
 // =============================================================================
-PIDController pidFL(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
-PIDController pidFR(0.05f, 0.005f, 0.0f, 0.02f, 15000.0f);
+PIDController pidFL(2.0f, 0.1f, 0.0f, 0.02f, 15000.0f);
+PIDController pidFR(2.0f, 0.1f, 0.0f, 0.02f, 15000.0f);
 
 // =============================================================================
 // TARGET SPEEDS (ticks/sec) — set via serial
@@ -120,6 +120,7 @@ void loop() {
       int v1, v2;
       if (sscanf(input_string.c_str(), "M1:%d M2:%d", &v1, &v2) == 2) {
         target_FL = (float)v1;
+        
         target_FR = (float)v2;
         last_msg_time = millis();
       }

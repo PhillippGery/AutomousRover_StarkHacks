@@ -132,8 +132,7 @@ class SerialBridgeNode(Node):
                 parts[k] = int(v)
             m1 = parts['M1']
             m2 = parts['M2']
-        except Exception as e:
-            self.get_logger().warn(f'Parse error ({label}) "{line}": {e}')
+        except Exception:
             return False
 
         now = self.get_clock().now()

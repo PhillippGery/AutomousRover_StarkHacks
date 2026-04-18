@@ -19,6 +19,7 @@ def generate_launch_description():
             executable='keyboard_teleop_node',
             name='keyboard_teleop_node',
             output='screen',
+            prefix='xterm -e',
         ),
         Node(
             package='guardian_drive',
