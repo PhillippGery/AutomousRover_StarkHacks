@@ -18,6 +18,7 @@ class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
 
+        self.declare_parameter('serial_protocol',  'single_arduino_flfrblbr_ticks')
         self.declare_parameter('serial_port',       '')
         self.declare_parameter('serial_port_left',  '/dev/ttyACM0')
         self.declare_parameter('serial_port_right', '/dev/ttyACM1')
@@ -31,10 +32,15 @@ class SerialBridgeNode(Node):
         self.declare_parameter('sim_mode',           False)
         self.declare_parameter('publish_odom',       True)
         self.declare_parameter('publish_tf',         True)
+        self.declare_parameter('command_sign',       1.0)
+        self.declare_parameter('encoder_sign',       1.0)
 
         self.sim_mode  = self.get_parameter('sim_mode').value
         self.publish_odom = self.get_parameter('publish_odom').value
         self.publish_tf = self.get_parameter('publish_tf').value
+        self.serial_protocol = self.get_parameter('serial_protocol').value
+        self.command_sign = float(self.get_parameter('command_sign').value)
+        self.encoder_sign = float(self.get_parameter('encoder_sign').value)
         serial_port    = self.get_parameter('serial_port').value
         port_left      = self.get_parameter('serial_port_left').value
         port_right     = self.get_parameter('serial_port_right').value
@@ -48,7 +54,7 @@ class SerialBridgeNode(Node):
             self.ser_single = self.ser_left = self.ser_right = None
             self.get_logger().warn('sim_mode=true — serial disabled, publishing zero odometry')
         elif serial_port:
-            self.serial_mode = 'single_arduino'
+            self.serial_mode = self.serial_protocol
             self.ser_single = self._open_port(serial_port, baud, timeout)
             self.ser_left = self.ser_right = None
         else:
@@ -85,9 +91,9 @@ class SerialBridgeNode(Node):
         if self.publish_odom:
             self.create_timer(0.02, self.read_encoders)  # 50 Hz
 
-        if self.serial_mode == 'single_arduino':
+        if self.serial_mode.startswith('single_arduino'):
             self.get_logger().info(
-                f'serial_bridge_node started (MODE=single_arduino, PORT={serial_port}, '
+                f'serial_bridge_node started (MODE={self.serial_mode}, PORT={serial_port}, '
                 f'publish_odom={self.publish_odom}, publish_tf={self.publish_tf})')
         else:
             self.get_logger().info(
@@ -110,12 +116,22 @@ class SerialBridgeNode(Node):
             self.get_logger().warn('wheel_rpm: need 4 values')
             return
         fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
+        fl_rpm *= self.command_sign
+        fr_rpm *= self.command_sign
+        bl_rpm *= self.command_sign
+        br_rpm *= self.command_sign
 
-        if self.serial_mode == 'single_arduino':
+        if self.serial_mode == 'single_arduino_flfrblbr_ticks':
             self._write_safe(
                 self.ser_single,
                 f'FL:{int(round(fl_rpm))} FR:{int(round(fr_rpm))} '
                 f'BL:{int(round(bl_rpm))} BR:{int(round(br_rpm))}\n',
+                'MAIN')
+            return
+        if self.serial_mode == 'single_arduino_m1234_velocity':
+            self._write_safe(
+                self.ser_single,
+                f'M1:{fl_rpm:.1f} M2:{fr_rpm:.1f} M3:{bl_rpm:.1f} M4:{br_rpm:.1f}\n',
                 'MAIN')
             return
 
@@ -140,8 +156,10 @@ class SerialBridgeNode(Node):
             self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
             return
 
-        if self.serial_mode == 'single_arduino':
+        if self.serial_mode == 'single_arduino_flfrblbr_ticks':
             updated = self._read_single_board(self.ser_single, 'MAIN')
+        elif self.serial_mode == 'single_arduino_m1234_velocity':
+            updated = self._read_single_velocity_board(self.ser_single, 'MAIN')
         else:
             updated = False
             updated |= self._read_board(self.ser_left,  'LEFT',  is_left=True)
@@ -179,15 +197,42 @@ class SerialBridgeNode(Node):
         if dt <= 0:
             return False
 
-        self._vel_fl = (fl - self._prev_fl) / dt
-        self._vel_fr = (fr - self._prev_fr) / dt
-        self._vel_bl = (bl - self._prev_bl) / dt
-        self._vel_br = (br - self._prev_br) / dt
+        self._vel_fl = self.encoder_sign * ((fl - self._prev_fl) / dt)
+        self._vel_fr = self.encoder_sign * ((fr - self._prev_fr) / dt)
+        self._vel_bl = self.encoder_sign * ((bl - self._prev_bl) / dt)
+        self._vel_br = self.encoder_sign * ((br - self._prev_br) / dt)
         self._prev_fl = fl
         self._prev_fr = fr
         self._prev_bl = bl
         self._prev_br = br
         self._prev_tick_time_single = now
+        return True
+
+    def _read_single_velocity_board(self, ser, label):
+        try:
+            if ser is None or not ser.in_waiting:
+                return False
+            raw = ser.readline()
+        except (serial.SerialException, OSError) as e:
+            self.get_logger().error(f'Serial read ({label}): {e}')
+            return False
+
+        line = raw.decode(errors='replace').strip()
+        if not line.startswith('ENC:'):
+            return False
+
+        try:
+            parts = {}
+            for token in line[4:].split():
+                k, _, v = token.partition(':')
+                parts[k] = float(v)
+            self._vel_fl = self.encoder_sign * parts['M1']
+            self._vel_fr = self.encoder_sign * parts['M2']
+            self._vel_bl = self.encoder_sign * parts['M3']
+            self._vel_br = self.encoder_sign * parts['M4']
+        except (ValueError, KeyError):
+            return False
+
         return True
 
     def _read_board(self, ser, label, is_left):
@@ -221,8 +266,8 @@ class SerialBridgeNode(Node):
             dt = (now - self._prev_tick_time_left).nanoseconds / 1e9
             if dt <= 0:
                 return False
-            self._vel_fl = (m1 - self._prev_fl) / dt  # M1 = FL
-            self._vel_bl = (m2 - self._prev_bl) / dt  # M2 = BL
+            self._vel_fl = self.encoder_sign * ((m1 - self._prev_fl) / dt)  # M1 = FL
+            self._vel_bl = self.encoder_sign * ((m2 - self._prev_bl) / dt)  # M2 = BL
             self._prev_fl = m1
             self._prev_bl = m2
             self._prev_tick_time_left = now
@@ -230,8 +275,8 @@ class SerialBridgeNode(Node):
             dt = (now - self._prev_tick_time_right).nanoseconds / 1e9
             if dt <= 0:
                 return False
-            self._vel_fr = (m1 - self._prev_fr) / dt  # M1 = FR
-            self._vel_br = (m2 - self._prev_br) / dt  # M2 = BR
+            self._vel_fr = self.encoder_sign * ((m1 - self._prev_fr) / dt)  # M1 = FR
+            self._vel_br = self.encoder_sign * ((m2 - self._prev_br) / dt)  # M2 = BR
             self._prev_fr = m1
             self._prev_br = m2
             self._prev_tick_time_right = now

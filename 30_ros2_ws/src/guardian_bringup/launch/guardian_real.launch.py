@@ -22,12 +22,24 @@ def generate_launch_description():
     robot_desc = xacro.process_file(
         os.path.join(description_dir, 'urdf', 'guardian.urdf.xacro')).toxml()
     use_dummy_odom = LaunchConfiguration('use_dummy_odom')
+    lidar_port = LaunchConfiguration('lidar_port')
+    motor_port = LaunchConfiguration('motor_port')
 
     return LaunchDescription([
         DeclareLaunchArgument(
             'use_dummy_odom',
             default_value='false',
             description='Publish debug /odom from /cmd_vel instead of using Arduino encoder odometry',
+        ),
+        DeclareLaunchArgument(
+            'lidar_port',
+            default_value='/dev/ttyUSB0',
+            description='Serial port for the Scanse Sweep lidar',
+        ),
+        DeclareLaunchArgument(
+            'motor_port',
+            default_value='/dev/ttyUSB1',
+            description='Serial port for the single-board motor controller',
         ),
         Node(
             package='robot_state_publisher',
@@ -55,9 +67,9 @@ def generate_launch_description():
         ),
         ExecuteProcess(
             cmd=['bash', '-c',
-                 'stty -F /dev/ttyUSB0 115200 && '
-                 'printf "DX\n" > /dev/ttyUSB0 && sleep 1 && '
-                 'printf "RR\n" > /dev/ttyUSB0'],
+                 ['stty -F ', lidar_port, ' 115200 && '
+                  'printf "DX\n" > ', lidar_port, ' && sleep 1 && '
+                  'printf "RR\n" > ', lidar_port]],
             output='screen',
         ),
         TimerAction(
@@ -68,7 +80,7 @@ def generate_launch_description():
                     executable='l3xz_sweep_scanner_node',
                     name='sweep_scanner',
                     parameters=[{
-                        'serial_port': '/dev/ttyUSB0',
+                        'serial_port': lidar_port,
                         'topic': '/sweep/scan',
                         'frame_id': 'laser',
                         'rotation_speed': 5,
@@ -84,11 +96,14 @@ def generate_launch_description():
             name='serial_bridge_node',
             condition=UnlessCondition(use_dummy_odom),
             parameters=[{
-                'serial_port': '/dev/ttyUSB1',
+                'serial_port': motor_port,
+                'serial_protocol': 'single_arduino_m1234_velocity',
                 'baud_rate': 115200,
                 'sim_mode': False,
                 'publish_odom': True,
                 'publish_tf': False,
+                'command_sign': -1.0,
+                'encoder_sign': -1.0,
             }],
             output='screen',
         ),
