@@ -1,153 +1,87 @@
 import os
-
 import xacro
 from ament_index_python.packages import get_package_share_directory
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, ExecuteProcess, IncludeLaunchDescription, TimerAction
-from launch.conditions import IfCondition, UnlessCondition
+from launch.actions import ExecuteProcess, IncludeLaunchDescription, TimerAction
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
-
 
 def generate_launch_description():
     bringup_dir = get_package_share_directory('guardian_bringup')
     description_dir = get_package_share_directory('guardian_description')
-    nav2_dir = get_package_share_directory('nav2_bringup')
     slam_dir = get_package_share_directory('slam_toolbox')
 
-    nav2_params = os.path.join(bringup_dir, 'config', 'nav2_params_real.yaml')
-    ekf_params = os.path.join(bringup_dir, 'config', 'ekf_params_real.yaml')
-    rviz_config = os.path.join(bringup_dir, 'config', 'guardian_real.rviz')
+    nav2_params = os.path.join(bringup_dir, 'config', 'nav2_params.yaml')
+    rviz_config = os.path.join(bringup_dir, 'config', 'guardian_nav.rviz')
     robot_desc = xacro.process_file(
         os.path.join(description_dir, 'urdf', 'guardian.urdf.xacro')).toxml()
-    use_dummy_odom = LaunchConfiguration('use_dummy_odom')
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'use_dummy_odom',
-            default_value='false',
-            description='Publish debug /odom from /cmd_vel instead of using Arduino encoder odometry',
-        ),
+
+        # ── 1. Robot state ───────────────────────────────────────────
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             parameters=[{'robot_description': robot_desc, 'use_sim_time': False}],
             output='screen',
         ),
+
+        # ── 2. Intel RealSense T265 (The Localization Source) ───────────
         Node(
-            package='guardian_localization',
-            executable='lidar_republisher_node',
-            name='lidar_republisher_node',
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            name='realsense2_camera',
             parameters=[{
-                'input_topic': '/sweep/scan',
-                'output_topic': '/scan',
+                'camera_name': 'camera',
+                'use_sim_time': False,
+                'enable_pose': True,
+                # Force TF publication
+                'publish_tf': True,
+                'publish_odom_tf': True,
+                'tf_publish_rate': 30.0,
+                # Explicitly name the frames
+                'odom_frame_id': 'odom', 
+                'pose_frame_id': 'base_link',
+                'base_frame_id': 'base_link',
+            }],
+            output='screen',
+        ),
+        
+        # Bridge the T265 'odom_frame' to the global 'odom'
+        # Node(
+        #     package='tf2_ros',
+        #     executable='static_transform_publisher',
+        #     name='odom_to_t265_odom',
+        #     arguments=['0', '0', '0', '0', '0', '0', 'odom', 'odom_frame'],
+        # ),
+
+        # ── 3. Scanse Sweep LIDAR ──────────────────────────────────────────────
+        Node(
+            package='l3xz_sweep_scanner',
+            executable='l3xz_sweep_scanner_node',
+            name='sweep_scanner',
+            parameters=[{
+                'serial_port': '/dev/ttyUSB0',
                 'frame_id': 'laser',
-                'timestamp_offset_sec': 0.05,
             }],
             output='screen',
         ),
-        ExecuteProcess(
-            cmd=['bash', '-c',
-                 'stty -F /dev/ttyUSB0 115200 && '
-                 'printf "DX\n" > /dev/ttyUSB0 && sleep 1 && '
-                 'printf "RR\n" > /dev/ttyUSB0'],
-            output='screen',
+
+        # ── 4. SLAM Toolbox ─────────────────────────────────────────────────────
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(
+                os.path.join(slam_dir, 'launch', 'online_async_launch.py')
+            ),
+            launch_arguments={'use_sim_time': 'false'}.items(),
         ),
-        TimerAction(
-            period=4.0,
-            actions=[
-                Node(
-                    package='l3xz_sweep_scanner',
-                    executable='l3xz_sweep_scanner_node',
-                    name='sweep_scanner',
-                    parameters=[{
-                        'serial_port': '/dev/ttyUSB0',
-                        'topic': '/sweep/scan',
-                        'frame_id': 'laser',
-                        'rotation_speed': 5,
-                        'sample_rate': 500,
-                    }],
-                    output='screen',
-                ),
-            ],
-        ),
-        Node(
-            package='guardian_drive',
-            executable='serial_bridge_node',
-            name='serial_bridge_node',
-            condition=UnlessCondition(use_dummy_odom),
-            parameters=[{
-                'serial_port': '/dev/ttyUSB1',
-                'baud_rate': 115200,
-                'sim_mode': False,
-                'publish_odom': True,
-                'publish_tf': False,
-            }],
-            output='screen',
-        ),
-        Node(
-            package='guardian_bringup',
-            executable='dummy_odom_node',
-            name='dummy_odom_node',
-            condition=IfCondition(use_dummy_odom),
-            output='screen',
-        ),
-        Node(
-            package='guardian_drive',
-            executable='mecanum_kinematics_node',
-            name='mecanum_kinematics_node',
-            parameters=[{'use_sim_time': False}],
-            output='screen',
-        ),
-        Node(
-            package='robot_localization',
-            executable='ekf_node',
-            name='ekf_filter_node',
-            parameters=[ekf_params, {'use_sim_time': False}],
-            output='screen',
-        ),
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', rviz_config],
-            parameters=[{'use_sim_time': False}],
-            output='screen',
-        ),
-        TimerAction(
-            period=15.0,
-            actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(
-                        os.path.join(slam_dir, 'launch', 'online_async_launch.py')
-                    ),
-                    launch_arguments={
-                        'slam_params_file': nav2_params,
-                        'use_sim_time': 'false',
-                    }.items(),
-                ),
-            ],
-        ),
-        TimerAction(
-            period=18.0,
-            actions=[
-                IncludeLaunchDescription(
-                    PythonLaunchDescriptionSource(
-                        os.path.join(nav2_dir, 'launch', 'navigation_launch.py')
-                    ),
-                    launch_arguments={
-                        'params_file': nav2_params,
-                        'use_sim_time': 'false',
-                    }.items(),
-                ),
-            ],
-        ),
-        Node(
-            package='teleop_twist_keyboard',
-            executable='teleop_twist_keyboard',
-            name='teleop',
-            output='screen',
-            prefix='xterm -e',
-        ),
+
+        # ── 5. Nav2 core nodes ──────────────────────────────────────────────────
+        TimerAction(period=5.0, actions=[
+            Node(package='nav2_controller', executable='controller_server', name='controller_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_planner', executable='planner_server', name='planner_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_behaviors', executable='behavior_server', name='behavior_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_bt_navigator', executable='bt_navigator', name='bt_navigator', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_navigation', 
+                 parameters=[{'use_sim_time': False, 'autostart': True, 'node_names': ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator']}]),
+        ]),
     ])
