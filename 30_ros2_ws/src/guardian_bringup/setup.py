@@ -23,6 +23,7 @@ setup(
     entry_points={
         'console_scripts': [
             'demo_mission_node = guardian_bringup.demo_mission_node:main',
+            'dummy_odom_node = guardian_bringup.dummy_odom_node:main',
         ],
     },
 )

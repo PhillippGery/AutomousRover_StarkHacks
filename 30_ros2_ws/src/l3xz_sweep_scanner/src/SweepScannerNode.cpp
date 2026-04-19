@@ -53,7 +53,9 @@ catch(sweep::device_error const & e)
 SweepScannerNode::~SweepScannerNode()
 {
   _scanner_thread_active = false;
-  _scanner_thread.join();
+  if (_scanner_thread.joinable()) {
+    _scanner_thread.join();
+  }
 }
 
 /**************************************************************************************
@@ -129,10 +131,25 @@ void SweepScannerNode::scannerThreadFunc() try
     _lidar_pub->publish(laser_scan_msg);
   }
 
-  _scanner->stop_scanning();
+  if (_scanner != nullptr) {
+    _scanner->stop_scanning();
+  }
 }
 catch(sweep::device_error const & e)
 {
   RCLCPP_ERROR(get_logger(), "%s", e.what());
-  _scanner->stop_scanning();
+  _scanner_thread_active = false;
+  if (_scanner != nullptr) {
+    _scanner->stop_scanning();
+  }
+}
+catch(std::exception const & e)
+{
+  RCLCPP_ERROR(get_logger(), "scanner thread failed: %s", e.what());
+  _scanner_thread_active = false;
+}
+catch(...)
+{
+  RCLCPP_ERROR(get_logger(), "scanner thread failed with unknown exception");
+  _scanner_thread_active = false;
 }

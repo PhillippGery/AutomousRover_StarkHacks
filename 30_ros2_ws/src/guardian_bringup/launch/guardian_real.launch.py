@@ -9,16 +9,13 @@ from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration
 from launch_ros.actions import Node
 
-
 def generate_launch_description():
     bringup_dir = get_package_share_directory('guardian_bringup')
     description_dir = get_package_share_directory('guardian_description')
     slam_dir = get_package_share_directory('slam_toolbox')
 
-    robot_params = os.path.join(bringup_dir, 'config', 'robot_params.yaml')
     nav2_params = os.path.join(bringup_dir, 'config', 'nav2_params.yaml')
-    rviz_config = os.path.join(bringup_dir, 'config', 'guardian_mapping.rviz')
-
+    rviz_config = os.path.join(bringup_dir, 'config', 'guardian_nav.rviz')
     robot_desc = xacro.process_file(
         os.path.join(description_dir, 'urdf', 'guardian.urdf.xacro')
     ).toxml()
@@ -28,111 +25,71 @@ def generate_launch_description():
     enable_rviz = LaunchConfiguration('enable_rviz')
 
     return LaunchDescription([
-        DeclareLaunchArgument(
-            'lidar_port',
-            default_value='/dev/ttyUSB0',
-            description='Serial port for the Scanse Sweep lidar',
-        ),
-        DeclareLaunchArgument(
-            'enable_slam',
-            default_value='false',
-            description='Start SLAM Toolbox after the lidar and /odom are stable',
-        ),
-        DeclareLaunchArgument(
-            'enable_rviz',
-            default_value='true',
-            description='Start RViz with the hardware bringup view',
-        ),
 
-        # Publish the robot TF tree, including the fixed laser mount.
+        # ── 1. Robot state ───────────────────────────────────────────
         Node(
             package='robot_state_publisher',
             executable='robot_state_publisher',
             parameters=[{'robot_description': robot_desc}],
         ),
-        Node(
-            package='joint_state_publisher',
-            executable='joint_state_publisher',
-            parameters=[{'robot_description': robot_desc}],
-        ),
 
-        # Drive chain: /cmd_vel -> /wheel_rpm -> serial motor controller + /odom
+        # ── 2. Intel RealSense T265 (The Localization Source) ───────────
         Node(
-            package='guardian_drive',
-            executable='mecanum_kinematics_node',
-            name='mecanum_kinematics_node',
-            parameters=[robot_params],
-            output='screen',
-        ),
-        Node(
-            package='guardian_drive',
-            executable='guardian_drive_node',
-            name='guardian_drive',
-            parameters=[robot_params, {'publish_odom': True}],
-            output='screen',
-        ),
-
-        # Reset the lidar before the driver attaches so stale scan state does not
-        # block the real hardware startup sequence.
-        ExecuteProcess(
-            cmd=[
-                'bash',
-                '-c',
-                ['stty -F ', lidar_port, ' 115200 && '
-                 'printf "DX\n" > ', lidar_port, ' && sleep 1 && '
-                 'printf "RR\n" > ', lidar_port],
-            ],
-            output='screen',
-        ),
-        TimerAction(
-            period=4.0,
-            actions=[
-                Node(
-                    package='l3xz_sweep_scanner',
-                    executable='l3xz_sweep_scanner_node',
-                    name='sweep_scanner',
-                    parameters=[{
-                        'serial_port': lidar_port,
-                        'topic': '/sweep/scan',
-                        'frame_id': 'laser',
-                        'rotation_speed': 10,
-                        'sample_rate': 1000,
-                    }],
-                    output='screen',
-                ),
-            ],
-        ),
-        Node(
-            package='guardian_localization',
-            executable='lidar_republisher_node',
-            name='lidar_republisher_node',
+            package='realsense2_camera',
+            executable='realsense2_camera_node',
+            name='realsense2_camera',
             parameters=[{
-                'input_topic': '/sweep/scan',
-                'output_topic': '/scan',
+                'camera_name': 'camera',
+                'use_sim_time': False,
+                'enable_pose': True,
+                # Force TF publication
+                'publish_tf': True,
+                'publish_odom_tf': True,
+                'tf_publish_rate': 30.0,
+                # Explicitly name the frames
+                'odom_frame_id': 'odom', 
+                'pose_frame_id': 'base_link',
+                'base_frame_id': 'base_link',
+            }],
+            output='screen',
+        ),
+        
+        # Bridge the T265 'odom_frame' to the global 'odom'
+        # Node(
+        #     package='tf2_ros',
+        #     executable='static_transform_publisher',
+        #     name='odom_to_t265_odom',
+        #     arguments=['0', '0', '0', '0', '0', '0', 'odom', 'odom_frame'],
+        # ),
+
+        # ── 3. Scanse Sweep LIDAR ──────────────────────────────────────────────
+        Node(
+            package='l3xz_sweep_scanner',
+            executable='l3xz_sweep_scanner_node',
+            name='sweep_scanner',
+            parameters=[{
+                'serial_port': '/dev/ttyUSB0',
                 'frame_id': 'laser',
                 'timestamp_offset_sec': 0.05,
             }],
             output='screen',
         ),
 
-        Node(
-            package='rviz2',
-            executable='rviz2',
-            name='rviz2',
-            arguments=['-d', rviz_config] if os.path.exists(rviz_config) else [],
-            condition=IfCondition(enable_rviz),
-        ),
-
-        # Leave SLAM opt-in until the odometry chain is reliable enough to
-        # support scan matching.
+        # ── 4. SLAM Toolbox ─────────────────────────────────────────────────────
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(
                 os.path.join(slam_dir, 'launch', 'online_async_launch.py')
             ),
-            launch_arguments={
-                'slam_params_file': nav2_params,
-                'use_sim_time': 'false',
-            }.items(),
-            condition=IfCondition(enable_slam),
+            launch_arguments={'use_sim_time': 'false'}.items(),
         ),
+
+        # ── 5. Nav2 core nodes ──────────────────────────────────────────────────
+        TimerAction(period=5.0, actions=[
+            Node(package='nav2_controller', executable='controller_server', name='controller_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_planner', executable='planner_server', name='planner_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_behaviors', executable='behavior_server', name='behavior_server', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_bt_navigator', executable='bt_navigator', name='bt_navigator', parameters=[nav2_params, {'use_sim_time': False}]),
+            Node(package='nav2_lifecycle_manager', executable='lifecycle_manager', name='lifecycle_manager_navigation', 
+                 parameters=[{'use_sim_time': False, 'autostart': True, 'node_names': ['controller_server', 'planner_server', 'behavior_server', 'bt_navigator']}]),
+        ]),
     ])

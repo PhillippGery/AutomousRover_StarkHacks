@@ -18,6 +18,7 @@ class SerialBridgeNode(Node):
     def __init__(self):
         super().__init__('serial_bridge_node')
 
+        self.declare_parameter('serial_port',       '')
         self.declare_parameter('serial_port_left',  '/dev/ttyACM0')
         self.declare_parameter('serial_port_right', '/dev/ttyACM1')
         self.declare_parameter('baud_rate',          115200)
@@ -29,9 +30,12 @@ class SerialBridgeNode(Node):
         self.declare_parameter('max_ticks_per_sec',  3000.0)
         self.declare_parameter('sim_mode',           False)
         self.declare_parameter('publish_odom',       True)
+        self.declare_parameter('publish_tf',         True)
 
         self.sim_mode  = self.get_parameter('sim_mode').value
         self.publish_odom = self.get_parameter('publish_odom').value
+        self.publish_tf = self.get_parameter('publish_tf').value
+        serial_port    = self.get_parameter('serial_port').value
         port_left      = self.get_parameter('serial_port_left').value
         port_right     = self.get_parameter('serial_port_right').value
         baud           = self.get_parameter('baud_rate').value
@@ -40,9 +44,16 @@ class SerialBridgeNode(Node):
         self.max_ticks_per_sec = self.get_parameter('max_ticks_per_sec').value
 
         if self.sim_mode:
-            self.ser_left = self.ser_right = None
+            self.serial_mode = 'sim'
+            self.ser_single = self.ser_left = self.ser_right = None
             self.get_logger().warn('sim_mode=true — serial disabled, publishing zero odometry')
+        elif serial_port:
+            self.serial_mode = 'single_arduino'
+            self.ser_single = self._open_port(serial_port, baud, timeout)
+            self.ser_left = self.ser_right = None
         else:
+            self.serial_mode = 'dual_esp32'
+            self.ser_single = None
             self.ser_left  = self._open_port(port_left,  baud, timeout)
             self.ser_right = self._open_port(port_right, baud, timeout)
 
@@ -52,7 +63,8 @@ class SerialBridgeNode(Node):
         self.tf_broadcaster = None
         if self.publish_odom:
             self.odom_pub = self.create_publisher(Odometry, '/odom', 10)
-            self.tf_broadcaster = TransformBroadcaster(self)
+            if self.publish_tf:
+                self.tf_broadcaster = TransformBroadcaster(self)
 
         self.x = self.y = self.yaw = 0.0
         self.last_time = self.get_clock().now()
@@ -62,6 +74,7 @@ class SerialBridgeNode(Node):
         # RIGHT board: M1=FR, M2=BR
         self._prev_fl = self._prev_bl = 0
         self._prev_fr = self._prev_br = 0
+        self._prev_tick_time_single = self.get_clock().now()
         self._prev_tick_time_left  = self.get_clock().now()
         self._prev_tick_time_right = self.get_clock().now()
 
@@ -72,9 +85,15 @@ class SerialBridgeNode(Node):
         if self.publish_odom:
             self.create_timer(0.02, self.read_encoders)  # 50 Hz
 
-        self.get_logger().info(
-            f'serial_bridge_node started (LEFT={port_left}, RIGHT={port_right}, '
-            f'publish_odom={self.publish_odom})')
+        if self.serial_mode == 'single_arduino':
+            self.get_logger().info(
+                f'serial_bridge_node started (MODE=single_arduino, PORT={serial_port}, '
+                f'publish_odom={self.publish_odom}, publish_tf={self.publish_tf})')
+        else:
+            self.get_logger().info(
+                f'serial_bridge_node started (MODE={self.serial_mode}, LEFT={port_left}, '
+                f'RIGHT={port_right}, publish_odom={self.publish_odom}, '
+                f'publish_tf={self.publish_tf})')
 
     def _open_port(self, port, baud, timeout):
         try:
@@ -91,6 +110,14 @@ class SerialBridgeNode(Node):
             self.get_logger().warn('wheel_rpm: need 4 values')
             return
         fl_rpm, fr_rpm, bl_rpm, br_rpm = msg.data[:4]
+
+        if self.serial_mode == 'single_arduino':
+            self._write_safe(
+                self.ser_single,
+                f'FL:{int(round(fl_rpm))} FR:{int(round(fr_rpm))} '
+                f'BL:{int(round(bl_rpm))} BR:{int(round(br_rpm))}\n',
+                'MAIN')
+            return
 
         # LEFT board drives FL (M1) and BL (M2)
         self._write_safe(self.ser_left,  f'M1:{fl_rpm:.2f} M2:{bl_rpm:.2f}\n', 'LEFT')
@@ -109,15 +136,59 @@ class SerialBridgeNode(Node):
     def read_encoders(self):
         if not self.publish_odom:
             return
-        if self.sim_mode or (self.ser_left is None and self.ser_right is None):
+        if self.sim_mode or (self.ser_single is None and self.ser_left is None and self.ser_right is None):
             self._publish_odom(0.0, 0.0, 0.0, self.get_clock().now())
             return
 
-        updated = False
-        updated |= self._read_board(self.ser_left,  'LEFT',  is_left=True)
-        updated |= self._read_board(self.ser_right, 'RIGHT', is_left=False)
+        if self.serial_mode == 'single_arduino':
+            updated = self._read_single_board(self.ser_single, 'MAIN')
+        else:
+            updated = False
+            updated |= self._read_board(self.ser_left,  'LEFT',  is_left=True)
+            updated |= self._read_board(self.ser_right, 'RIGHT', is_left=False)
         if updated:
             self._compute_odom()
+
+    def _read_single_board(self, ser, label):
+        try:
+            if ser is None or not ser.in_waiting:
+                return False
+            raw = ser.readline()
+        except (serial.SerialException, OSError) as e:
+            self.get_logger().error(f'Serial read ({label}): {e}')
+            return False
+
+        line = raw.decode(errors='replace').strip()
+        if not line.startswith('ENC:'):
+            return False
+
+        try:
+            parts = {}
+            for token in line[4:].split():
+                k, _, v = token.partition(':')
+                parts[k] = int(v)
+            fl = parts['FL']
+            fr = parts['FR']
+            bl = parts['BL']
+            br = parts['BR']
+        except (ValueError, KeyError):
+            return False
+
+        now = self.get_clock().now()
+        dt = (now - self._prev_tick_time_single).nanoseconds / 1e9
+        if dt <= 0:
+            return False
+
+        self._vel_fl = (fl - self._prev_fl) / dt
+        self._vel_fr = (fr - self._prev_fr) / dt
+        self._vel_bl = (bl - self._prev_bl) / dt
+        self._vel_br = (br - self._prev_br) / dt
+        self._prev_fl = fl
+        self._prev_fr = fr
+        self._prev_bl = bl
+        self._prev_br = br
+        self._prev_tick_time_single = now
+        return True
 
     def _read_board(self, ser, label, is_left):
         try:
@@ -142,7 +213,7 @@ class SerialBridgeNode(Node):
                 parts[k] = int(v)
             m1 = parts['M1']
             m2 = parts['M2']
-        except Exception:
+        except (ValueError, KeyError):
             return False
 
         now = self.get_clock().now()
@@ -213,15 +284,16 @@ class SerialBridgeNode(Node):
         odom.twist.twist.angular.z   = omega
         self.odom_pub.publish(odom)
 
-        tf = TransformStamped()
-        tf.header.stamp    = stamp.to_msg()
-        tf.header.frame_id = 'odom'
-        tf.child_frame_id  = 'base_link'
-        tf.transform.translation.x = self.x
-        tf.transform.translation.y = self.y
-        tf.transform.rotation.z    = qz
-        tf.transform.rotation.w    = qw
-        self.tf_broadcaster.sendTransform(tf)
+        if self.tf_broadcaster is not None:
+            tf = TransformStamped()
+            tf.header.stamp    = stamp.to_msg()
+            tf.header.frame_id = 'odom'
+            tf.child_frame_id  = 'base_link'
+            tf.transform.translation.x = self.x
+            tf.transform.translation.y = self.y
+            tf.transform.rotation.z    = qz
+            tf.transform.rotation.w    = qw
+            self.tf_broadcaster.sendTransform(tf)
 
 
 def main(args=None):
