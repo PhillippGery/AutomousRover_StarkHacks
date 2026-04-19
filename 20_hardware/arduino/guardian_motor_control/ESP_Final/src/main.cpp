@@ -41,10 +41,10 @@ float vel_history_FR[4] = {0, 0, 0, 0}; int vel_index_FR = 0;
 float vel_history_RL[4] = {0, 0, 0, 0}; int vel_index_RL = 0;
 float vel_history_RR[4] = {0, 0, 0, 0}; int vel_index_RR = 0;
 
-PIDController pidFL(0.05f, 0.005f, 0.0001f, 0.02f, 15000.0f);
-PIDController pidFR(0.05f, 0.005f, 0.0001f, 0.02f, 15000.0f);
-PIDController pidRL(0.05f, 0.005f, 0.0001f, 0.02f, 15000.0f);
-PIDController pidRR(0.05f, 0.005f, 0.0001f, 0.02f, 15000.0f);
+PIDController pidFL(0.3f, 0.005f, 0.0001f, 0.01f, 15000.0f);
+PIDController pidFR(0.3f, 0.005f, 0.0001f, 0.01f, 15000.0f);
+PIDController pidRL(0.3f, 0.005f, 0.0001f, 0.01f, 15000.0f);
+PIDController pidRR(0.3f, 0.005f, 0.0001f, 0.01f, 15000.0f);
 
 float target_FL = 0.0f;
 float target_FR = 0.0f;
@@ -110,7 +110,7 @@ void setup() {
   // 20ms hardware timer
   timer = timerBegin(0, 80, true);
   timerAttachInterrupt(timer, &onTimer, true);
-  timerAlarmWrite(timer, 20000, true);
+  timerAlarmWrite(timer, 10000, true);
   timerAlarmEnable(timer);
 
   last_msg_time = millis();
@@ -161,10 +161,10 @@ if (run_pid_flag) {
     float out_RR = (target_RR == 0.0f) ? 0.0f : pidRR.compute(target_RR, vel_RR);
 
     // Feedforward
-    if (target_FL > 0.0f) out_FL += 25.0f; else if (target_FL < 0.0f) out_FL -= 25.0f;
-    if (target_FR > 0.0f) out_FR += 25.0f; else if (target_FR < 0.0f) out_FR -= 25.0f;
-    if (target_RL > 0.0f) out_RL += 25.0f; else if (target_RL < 0.0f) out_RL -= 25.0f;
-    if (target_RR > 0.0f) out_RR += 25.0f; else if (target_RR < 0.0f) out_RR -= 25.0f;
+    if (target_FL > 0.0f) out_FL += 25.0f; else if (target_FL < 0.0f) out_FL -= 50.0f;
+    if (target_FR > 0.0f) out_FR += 25.0f; else if (target_FR < 0.0f) out_FR -= 50.0f;
+    if (target_RL > 0.0f) out_RL += 25.0f; else if (target_RL < 0.0f) out_RL -= 50.0f;
+    if (target_RR > 0.0f) out_RR += 25.0f; else if (target_RR < 0.0f) out_RR -= 50.0f;
 
     out_FL = constrain(out_FL, -255.0f, 255.0f);
     out_FR = constrain(out_FR, -255.0f, 255.0f);
