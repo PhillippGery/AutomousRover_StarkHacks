@@ -8,6 +8,7 @@ Mecanum wheel kinematics and Arduino serial bridge.
 
 | Node | Purpose |
 |------|---------|
+| `guardian_drive_node` | Installed alias for the serial bridge used by `guardian_real.launch` |
 | `mecanum_kinematics_node` | Converts `/cmd_vel` Twist → 4× wheel RPM targets |
 | `serial_bridge_node` | Sends RPM targets to Arduino, reads encoder feedback, publishes `/odom` |
 

@@ -3,9 +3,9 @@
 
 *StarkHacks 2026 | Purdue University | April 17–19, 2026*
 
-![ROS2 Humble](https://img.shields.io/badge/ROS2-Humble-blue)
-![Python 3.10](https://img.shields.io/badge/Python-3.10-green)
-![Arduino](https://img.shields.io/badge/Arduino-Mega-teal)
+![ROS2 Jazzy](https://img.shields.io/badge/ROS2-Jazzy-blue)
+![Python 3.12](https://img.shields.io/badge/Python-3.12-green)
+![ESP32](https://img.shields.io/badge/ESP32-Feather_V2-teal)
 ![License MIT](https://img.shields.io/badge/License-MIT-yellow)
 
 GUARDIAN is an autonomous mobile manipulation system that enables remote operators to navigate to hazardous confined spaces and physically intervene using dual robotic arms and mixed reality — without ever entering the space.
@@ -35,9 +35,9 @@ GUARDIAN (**G**round **U**nit for **A**utonomous **R**econnaissance, **D**istal 
 
 | Item | Requirement |
 |------|-------------|
-| OS | Ubuntu 22.04 LTS |
-| ROS2 | Humble Hawksbill |
-| Python | 3.10+ |
+| OS | Ubuntu 24.04 LTS |
+| ROS2 | Jazzy Jalisco |
+| Python | 3.12+ |
 | Compute | AMD Ryzen AI MiniPC |
 
 ### Hardware Overview
@@ -49,7 +49,7 @@ GUARDIAN (**G**round **U**nit for **A**utonomous **R**econnaissance, **D**istal 
 | Tracking | Intel RealSense T265 | Indoor V-SLAM localization |
 | LIDAR | Scanse Sweep V1 | 360° obstacle detection |
 | Drive | JGB37-3530 ×4 + Mecanum ×4 | Omnidirectional movement |
-| Motor ctrl | Arduino Mega + L298N ×2 | Low-level PID control |
+| Motor ctrl | ESP32 Feather V2 ×2 | Low-level PID, LEFT+RIGHT split |
 | Interface | Meta Quest 3 | MR teleoperation |
 
 ---

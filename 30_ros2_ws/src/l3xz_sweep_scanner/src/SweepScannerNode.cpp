@@ -10,6 +10,10 @@
 
 #include <l3xz_sweep_scanner/SweepScannerNode.hpp>
 
+#include <algorithm>
+#include <cmath>
+#include <limits>
+
 /**************************************************************************************
  * CTOR/DTOR
  **************************************************************************************/
@@ -49,7 +53,9 @@ catch(sweep::device_error const & e)
 SweepScannerNode::~SweepScannerNode()
 {
   _scanner_thread_active = false;
-  _scanner_thread.join();
+  if (_scanner_thread.joinable()) {
+    _scanner_thread.join();
+  }
 }
 
 /**************************************************************************************
@@ -78,34 +84,72 @@ void SweepScannerNode::scannerThreadFunc() try
 
     sensor_msgs::msg::LaserScan laser_scan_msg;
     /* Populate sensor_msgs/LaserScan header. */
+    laser_scan_msg.header.stamp = now();
     laser_scan_msg.header.frame_id = _frame_id;
 
     /* Populate sensor_msgs/LaserScan data. */
-    float const samples_per_rotation = static_cast<float>(_sample_rate) / static_cast<float>(_rotation_speed);
+    size_t const samples_per_rotation = std::max(
+      1,
+      static_cast<int>(std::lround(
+        static_cast<double>(_sample_rate) / static_cast<double>(_rotation_speed))));
+    float const angle_increment = (2.0 * M_PI) / static_cast<float>(samples_per_rotation);
 
     laser_scan_msg.angle_min       = 0.0;
-    laser_scan_msg.angle_max       = 2.0 * M_PI;
-    laser_scan_msg.angle_increment = laser_scan_msg.angle_max / samples_per_rotation;
-    laser_scan_msg.time_increment  = 1.0 / static_cast<float>(_sample_rate);
+    laser_scan_msg.angle_max       = laser_scan_msg.angle_min
+                                   + angle_increment * static_cast<float>(samples_per_rotation - 1);
+    laser_scan_msg.angle_increment = angle_increment;
+    laser_scan_msg.scan_time       = 1.0 / static_cast<float>(_rotation_speed);
+    laser_scan_msg.time_increment  = laser_scan_msg.scan_time / static_cast<float>(samples_per_rotation);
     laser_scan_msg.range_min       = 0.0;
     laser_scan_msg.range_max       = 40.0;
 
-    laser_scan_msg.ranges.assign(scan.samples.size(), std::numeric_limits<float>::infinity());
+    laser_scan_msg.ranges.assign(samples_per_rotation, std::numeric_limits<float>::infinity());
+    laser_scan_msg.intensities.assign(samples_per_rotation, 0.0f);
 
-    size_t idx = 0;
     for (auto [angle_milli_deg, distance_cm, signal_strength] : scan.samples) {
-      laser_scan_msg.ranges[idx] = static_cast<float>(distance_cm) / 100.0;
-      idx++;
+      float const angle_deg = static_cast<float>(angle_milli_deg) / 1000.0f;
+      float angle_rad = angle_deg * static_cast<float>(M_PI) / 180.0f;
+      while (angle_rad < 0.0f) {
+        angle_rad += 2.0f * static_cast<float>(M_PI);
+      }
+      while (angle_rad >= 2.0f * static_cast<float>(M_PI)) {
+        angle_rad -= 2.0f * static_cast<float>(M_PI);
+      }
+
+      size_t const idx = std::min(
+        samples_per_rotation - 1,
+        static_cast<size_t>(std::floor(angle_rad / angle_increment)));
+      float const range_m = static_cast<float>(distance_cm) / 100.0f;
+
+      if (!std::isfinite(laser_scan_msg.ranges[idx]) || range_m < laser_scan_msg.ranges[idx]) {
+        laser_scan_msg.ranges[idx] = range_m;
+        laser_scan_msg.intensities[idx] = static_cast<float>(signal_strength);
+      }
     }
 
     /* Publish the laser scan. */
     _lidar_pub->publish(laser_scan_msg);
   }
 
-  _scanner->stop_scanning();
+  if (_scanner != nullptr) {
+    _scanner->stop_scanning();
+  }
 }
 catch(sweep::device_error const & e)
 {
   RCLCPP_ERROR(get_logger(), "%s", e.what());
-  _scanner->stop_scanning();
+  _scanner_thread_active = false;
+  if (_scanner != nullptr) {
+    _scanner->stop_scanning();
+  }
+}
+catch(std::exception const & e)
+{
+  RCLCPP_ERROR(get_logger(), "scanner thread failed: %s", e.what());
+  _scanner_thread_active = false;
+}
+catch(...)
+{
+  RCLCPP_ERROR(get_logger(), "scanner thread failed with unknown exception");
+  _scanner_thread_active = false;
 }

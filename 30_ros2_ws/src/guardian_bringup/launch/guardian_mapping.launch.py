@@ -80,8 +80,8 @@ def generate_launch_description():
                     'serial_port': '/dev/ttyUSB0',
                     'topic':       '/sweep/scan',
                     'frame_id':    'laser',
-                    'rotation_speed': 5,
-                    'sample_rate': 750
+                    'rotation_speed': 10,
+                    'sample_rate': 1000
                 }],
             )],
 
@@ -102,7 +102,10 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(
                 os.path.join(slam_dir, 'launch', 'online_async_launch.py')
             ),
-            launch_arguments={'params_file': nav2_params}.items(),
+            launch_arguments={
+                'slam_params_file': nav2_params,
+                'use_sim_time': 'false',
+            }.items(),
         ),
 
         # ── RViz2 ─────────────────────────────────────────────────────────────

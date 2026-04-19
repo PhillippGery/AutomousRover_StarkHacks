@@ -17,7 +17,9 @@
 
 #include <sweep/sweep.hpp>
 
+#include <atomic>
 #include <string>
+#include <thread>
 
 /**************************************************************************************
  * CLASS DECLARATION

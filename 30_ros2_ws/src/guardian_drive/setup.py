@@ -20,6 +20,7 @@ setup(
     license='MIT',
     entry_points={
         'console_scripts': [
+            'guardian_drive_node = guardian_drive.serial_bridge_node:main',
             'mecanum_kinematics_node = guardian_drive.mecanum_kinematics_node:main',
             'serial_bridge_node = guardian_drive.serial_bridge_node:main',
         ],
