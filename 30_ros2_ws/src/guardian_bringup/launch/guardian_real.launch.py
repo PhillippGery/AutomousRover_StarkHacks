@@ -36,6 +36,12 @@ def generate_launch_description():
             output='screen',
         ),
         Node(
+            package='joint_state_publisher',
+            executable='joint_state_publisher',
+            parameters=[{'robot_description': robot_desc, 'use_sim_time': False}],
+            output='screen',
+        ),
+        Node(
             package='guardian_localization',
             executable='lidar_republisher_node',
             name='lidar_republisher_node',
